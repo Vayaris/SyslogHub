@@ -73,14 +73,8 @@ def _validate_config(conf_path: str) -> tuple[bool, str]:
 
 
 def _reload_rsyslog() -> tuple[bool, str]:
-    # Try SIGHUP first (graceful config reload), fall back to restart
-    hup = subprocess.run(
-        ["systemctl", "kill", "-s", "HUP", "rsyslog"],
-        capture_output=True, text=True, timeout=10,
-    )
-    if hup.returncode == 0:
-        return True, "OK"
-    # Fall back to restart
+    # A full restart is required to bind new UDP ports.
+    # SIGHUP only reloads rules/filters — it does NOT open new sockets.
     result = subprocess.run(
         ["systemctl", "restart", "rsyslog"],
         capture_output=True, text=True, timeout=20,
