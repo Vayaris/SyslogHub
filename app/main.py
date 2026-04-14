@@ -1,18 +1,21 @@
 from pathlib import Path
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from .database import get_db, init_db
-from .auth import validate_session
+from .auth import validate_session, create_session
 from .routers import auth, spaces, logs, settings
+from .utils import service_active
 from . import config
 
 BASE = Path("/opt/syslog-server")
 
 app = FastAPI(title="Syslog Server", docs_url=None, redoc_url=None)
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="127.0.0.1")
 
 # Static files
 app.mount("/static", StaticFiles(directory=str(BASE / "static")), name="static")
@@ -25,6 +28,39 @@ app.include_router(auth.router)
 app.include_router(spaces.router)
 app.include_router(logs.router)
 app.include_router(settings.router)
+
+
+# ── Rolling session middleware ─────────────────────────────────────────────────
+
+@app.middleware("http")
+async def rolling_session(request: Request, call_next):
+    response = await call_next(request)
+    token = request.cookies.get("session")
+    if token:
+        username = validate_session(token)
+        if username:
+            new_token = create_session(username)
+            is_https = request.url.scheme == "https"
+            response.set_cookie(
+                "session", new_token,
+                httponly=True, secure=is_https,
+                samesite="strict", path="/", max_age=86400,
+            )
+    return response
+
+
+# ── Public endpoints ──────────────────────────────────────────────────────────
+
+@app.get("/health")
+def health():
+    return JSONResponse({
+        "status": "ok",
+        "version": "1.1.0",
+        "services": {
+            "rsyslog": service_active("rsyslog"),
+            "nginx": service_active("nginx"),
+        },
+    })
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

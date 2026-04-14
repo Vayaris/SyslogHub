@@ -21,6 +21,11 @@ def generate_rsyslog_config(spaces: list) -> str:
 
     enabled = [s for s in spaces if s.enabled]
 
+    # Load imtcp if any space has TCP enabled
+    if any(getattr(s, "tcp_enabled", False) for s in enabled):
+        lines.insert(4, 'module(load="imtcp")')
+        lines.insert(5, "")
+
     if not enabled:
         lines.append("# No enabled spaces — no inputs configured")
         return "\n".join(lines) + "\n"
@@ -39,7 +44,8 @@ def generate_rsyslog_config(spaces: list) -> str:
 
     # One ruleset per space (with optional IP filter)
     for space in enabled:
-        action_block = [
+        allowed_ip = getattr(space, "allowed_ip", None)
+        action_lines = [
             f'    action(',
             f'        type="omfile"',
             f'        dynaFile="tpl_{space.port}"',
@@ -49,31 +55,28 @@ def generate_rsyslog_config(spaces: list) -> str:
             f'        fileGroup="adm"',
             f'    )',
         ]
-        allowed_ip = getattr(space, "allowed_ip", None)
         if allowed_ip:
-            # Only accept messages from the specified source IP
             lines += [
                 f'ruleset(name="rs_{space.port}") {{',
                 f'    if $fromhost-ip == "{allowed_ip}" then {{',
-            ] + [f'    {l}' for l in action_block] + [
+            ] + [f'    {l}' for l in action_lines] + [
                 f'    }}',
                 f'    stop',
                 f"}}",
                 "",
             ]
         else:
-            lines += [
-                f'ruleset(name="rs_{space.port}") {{',
-            ] + action_block + [
-                f"}}",
-                "",
-            ]
+            lines += [f'ruleset(name="rs_{space.port}") {{'] + action_lines + [f"}}", ""]
 
-    # One input per space
+    # Inputs: UDP always, TCP if enabled
     for space in enabled:
         lines.append(
             f'input(type="imudp" port="{space.port}" ruleset="rs_{space.port}")'
         )
+        if getattr(space, "tcp_enabled", False):
+            lines.append(
+                f'input(type="imtcp" port="{space.port}" ruleset="rs_{space.port}")'
+            )
 
     return "\n".join(lines) + "\n"
 
@@ -81,16 +84,13 @@ def generate_rsyslog_config(spaces: list) -> str:
 def _validate_config(conf_path: str) -> tuple[bool, str]:
     result = subprocess.run(
         ["rsyslogd", "-N1", "-f", conf_path],
-        capture_output=True,
-        text=True,
-        timeout=10,
+        capture_output=True, text=True, timeout=10,
     )
     return result.returncode == 0, result.stderr
 
 
 def _reload_rsyslog() -> tuple[bool, str]:
-    # A full restart is required to bind new UDP ports.
-    # SIGHUP only reloads rules/filters — it does NOT open new sockets.
+    # Full restart required to bind/unbind UDP/TCP sockets
     result = subprocess.run(
         ["systemctl", "restart", "rsyslog"],
         capture_output=True, text=True, timeout=20,
@@ -102,7 +102,6 @@ def apply_rsyslog_config(spaces: list) -> tuple[bool, str]:
     conf = config.RSYSLOG_CONF
     bak = config.RSYSLOG_CONF_BAK
 
-    # Ensure log directories exist for all enabled spaces
     for space in spaces:
         if space.enabled:
             log_dir = Path(config.LOG_ROOT) / str(space.port)
@@ -117,26 +116,21 @@ def apply_rsyslog_config(spaces: list) -> tuple[bool, str]:
     with open(LOCK_PATH, "w") as lock_file:
         fcntl.flock(lock_file, fcntl.LOCK_EX)
         try:
-            # Backup existing config
             if os.path.exists(conf):
                 shutil.copy2(conf, bak)
 
-            # Write new config
             with open(conf, "w") as f:
                 f.write(new_config)
 
-            # Validate
             ok, err = _validate_config(conf)
             if not ok:
-                # Restore backup
                 if os.path.exists(bak):
                     shutil.copy2(bak, conf)
-                return False, f"rsyslog config validation failed: {err}"
+                return False, f"rsyslog config invalide: {err}"
 
-            # Reload
             ok, err = _reload_rsyslog()
             if not ok:
-                return False, f"rsyslog reload failed: {err}"
+                return False, f"rsyslog restart échoué: {err}"
 
             return True, "OK"
         finally:

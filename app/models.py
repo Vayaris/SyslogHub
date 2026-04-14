@@ -16,6 +16,7 @@ class Space(Base):
     enabled = Column(Boolean, nullable=False, default=True)
     description = Column(Text, nullable=True)
     allowed_ip = Column(String(45), nullable=True)
+    tcp_enabled = Column(Boolean, nullable=False, default=False)
     created_at = Column(String(32), nullable=False, default=_now)
     updated_at = Column(String(32), nullable=False, default=_now, onupdate=_now)
 

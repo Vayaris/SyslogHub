@@ -1,5 +1,6 @@
-import os
 import gzip
+import os
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from .. import config
@@ -7,6 +8,19 @@ from .. import config
 
 def _format_dt(ts: float) -> str:
     return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+
+
+def _ip_to_filename(ip: str) -> str:
+    """Encode IPv6 colons to dashes for filesystem safety."""
+    return ip.replace(":", "-")
+
+
+def _filename_to_ip(name: str) -> str:
+    """Reverse: restore IPv6 colons. Only for names that look like encoded IPv6."""
+    # Heuristic: if name has dashes in IPv6 positions, try to restore
+    # Simple approach: stored as-is on Linux (ext4 allows colons), but
+    # we also handle dash-encoded variants for compatibility.
+    return name
 
 
 def get_space_stats(port: int) -> dict:
@@ -25,7 +39,6 @@ def get_space_stats(port: int) -> dict:
         total_size += stat.st_size
         if stat.st_mtime > last_mtime:
             last_mtime = stat.st_mtime
-        # Source IP is the stem of .log files (192.168.1.1.log → 192.168.1.1)
         name = f.name
         if name.endswith(".log"):
             sources.add(name[:-4])
@@ -66,12 +79,11 @@ def list_sources(port: int) -> list[dict]:
                 "last_modified": _format_dt(stat.st_mtime),
             }
         else:
-            # Keep most recent file as representative
-            if stat.st_mtime > datetime.fromisoformat(
+            existing_mtime = datetime.fromisoformat(
                 sources[ip]["last_modified"]
-            ).timestamp():
+            ).timestamp()
+            if stat.st_mtime > existing_mtime:
                 sources[ip]["filename"] = name
-                sources[ip]["size_bytes"] = stat.st_size
                 sources[ip]["last_modified"] = _format_dt(stat.st_mtime)
             sources[ip]["size_bytes"] += stat.st_size
 
@@ -84,15 +96,23 @@ def list_files(port: int, ip: str) -> list[dict]:
         return []
 
     results = []
+    # Match both direct IP and dash-encoded IPv6
+    encoded_ip = _ip_to_filename(ip)
+    prefixes = {ip + ".log", encoded_ip + ".log"}
+
     for f in log_dir.iterdir():
         if not f.is_file():
             continue
         name = f.name
-        is_this_ip = name.startswith(ip + ".log") or name == ip + ".log"
-        if not is_this_ip:
+        # Match exact .log or rotated variants (.log.1, .log.2.gz, etc.)
+        is_match = any(
+            name == p or name.startswith(p + ".") or name.startswith(p[:-4] + ".log.")
+            for p in prefixes
+        ) or name == ip + ".log" or name.startswith(ip + ".log.")
+        if not is_match:
             continue
         stat = f.stat()
-        is_rotated = name != ip + ".log"
+        is_rotated = not (name == ip + ".log" or name == encoded_ip + ".log")
         results.append({
             "filename": name,
             "size_bytes": stat.st_size,
@@ -104,11 +124,21 @@ def list_files(port: int, ip: str) -> list[dict]:
 
 
 def _estimate_lines(path: Path) -> int:
+    # Use wc -l for accuracy on accessible files
+    try:
+        result = subprocess.run(
+            ["wc", "-l", str(path)],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0:
+            return int(result.stdout.strip().split()[0])
+    except Exception:
+        pass
+    # Fallback: sample-based estimation
     try:
         size = path.stat().st_size
         if size == 0:
             return 0
-        # Sample first 8KB to estimate average line length
         with open(path, "rb") as f:
             sample = f.read(8192)
         newlines = sample.count(b"\n")
@@ -120,29 +150,59 @@ def _estimate_lines(path: Path) -> int:
         return 0
 
 
+def _tail_file(path: Path, max_lines: int) -> list[bytes]:
+    """Read last max_lines lines efficiently using reverse seek — no full file load."""
+    CHUNK = 1 << 16  # 64 KB
+    with open(path, "rb") as f:
+        f.seek(0, 2)
+        size = f.tell()
+        if size == 0:
+            return []
+        buf = b""
+        pos = size
+        while pos > 0:
+            read_size = min(CHUNK, pos)
+            pos -= read_size
+            f.seek(pos)
+            buf = f.read(read_size) + buf
+            lines = buf.split(b"\n")
+            # Keep an extra line at the front as it may be partial
+            if len(lines) > max_lines + 1:
+                buf = b"\n".join(lines[-(max_lines + 1):])
+                break
+    lines = buf.split(b"\n")
+    # Remove empty trailing line from final newline
+    if lines and lines[-1] == b"":
+        lines = lines[:-1]
+    return lines[-max_lines:] if max_lines else lines
+
+
 def read_log_tail(
     path: Path, lines: int = 100, offset: int = 0, filter_str: str = ""
 ) -> dict:
     try:
-        opener = gzip.open if str(path).endswith(".gz") else open
-        mode = "rt" if str(path).endswith(".gz") else "r"
+        is_gz = str(path).endswith(".gz")
 
-        with opener(path, mode, encoding="utf-8", errors="replace") as f:
-            all_lines = f.readlines()
+        if is_gz:
+            with gzip.open(path, "rt", encoding="utf-8", errors="replace") as f:
+                raw_lines = [l.rstrip("\n") for l in f.readlines()]
+        else:
+            raw_bytes = _tail_file(path, max_lines=max(lines + offset + 1000, 5000))
+            raw_lines = [l.decode("utf-8", errors="replace") for l in raw_bytes]
 
-        total = len(all_lines)
+        total = _estimate_lines(path) if not is_gz else len(raw_lines)
 
         if filter_str:
             fl = filter_str.lower()
-            all_lines = [l for l in all_lines if fl in l.lower()]
+            raw_lines = [l for l in raw_lines if fl in l.lower()]
 
-        # Reverse pagination from end: offset=0 is last `lines` lines
-        end = max(0, len(all_lines) - offset)
+        # Reverse pagination from end: offset=0 → last `lines` lines
+        end = max(0, len(raw_lines) - offset)
         start = max(0, end - lines)
-        page = all_lines[start:end]
+        page = raw_lines[start:end]
 
         return {
-            "lines": [l.rstrip("\n") for l in page],
+            "lines": page,
             "total_lines": total,
             "has_more": start > 0,
         }
@@ -162,3 +222,33 @@ def total_log_size() -> int:
             except OSError:
                 pass
     return total
+
+
+def volume_by_day(days: int = 7) -> list[dict]:
+    """Return per-day log volume for the last N days."""
+    from collections import defaultdict
+    from datetime import date, timedelta
+
+    log_root = Path(config.LOG_ROOT)
+    today = date.today()
+    buckets: dict[str, int] = defaultdict(int)
+
+    # Pre-fill all days with 0
+    for i in range(days):
+        d = (today - timedelta(days=days - 1 - i)).isoformat()
+        buckets[d] = 0
+
+    if log_root.exists():
+        for f in log_root.rglob("*"):
+            if not f.is_file():
+                continue
+            try:
+                mtime_date = datetime.fromtimestamp(
+                    f.stat().st_mtime, tz=timezone.utc
+                ).date().isoformat()
+                if mtime_date in buckets:
+                    buckets[mtime_date] += f.stat().st_size
+            except OSError:
+                pass
+
+    return [{"date": d, "bytes": buckets[d]} for d in sorted(buckets)]

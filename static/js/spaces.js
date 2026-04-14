@@ -22,7 +22,10 @@ async function loadSpaces() {
     tbody.innerHTML = spaces.map(s => `
       <tr>
         <td><strong>${escHtml(s.name)}</strong></td>
-        <td><span class="badge badge-port">${s.port}</span></td>
+        <td>
+          <span class="badge badge-port">${s.port}</span>
+          ${s.tcp_enabled ? '<span class="badge badge-info" style="margin-left:4px">TCP</span>' : ''}
+        </td>
         <td>
           ${s.description ? escHtml(s.description) : '<span class="text-muted">—</span>'}
           ${s.allowed_ip ? `<br><span class="badge badge-info" style="margin-top:4px">🔒 ${escHtml(s.allowed_ip)}</span>` : ''}
@@ -110,15 +113,18 @@ if (document.getElementById('space-form')) {
     const allowedIpEl = document.getElementById('allowed-ip');
     const allowed_ip = allowedIpEl ? (allowedIpEl.value.trim() || null) : null;
 
+    const tcpEl = document.getElementById('tcp-enabled');
+    const tcp_enabled = tcpEl ? tcpEl.checked : false;
+
     try {
       if (typeof MODE !== 'undefined' && MODE === 'edit') {
-        await api('PUT', `/spaces/${SPACE_ID}`, { name, description, allowed_ip });
+        await api('PUT', `/spaces/${SPACE_ID}`, { name, description, allowed_ip, tcp_enabled });
         showToast('Espace mis à jour', 'success');
         window.location = '/spaces';
       } else {
         const port = parseInt(document.getElementById('port').value, 10);
         if (!port || port < 1 || port > 65535) throw new Error('Port invalide (1-65535)');
-        await api('POST', '/spaces', { name, port, description, allowed_ip });
+        await api('POST', '/spaces', { name, port, description, allowed_ip, tcp_enabled });
         showToast('Espace créé', 'success');
         window.location = '/spaces';
       }

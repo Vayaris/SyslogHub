@@ -3,8 +3,23 @@ function escHtml(s) {
 }
 
 // ── Sources list (logs_space.html) ───────────────────────────────────────────
+let _sourcesPage = 1;
+let _sourcesFilter = '';
+let _filterTimer = null;
+
 if (document.getElementById('sources-tbody')) {
-  document.addEventListener('DOMContentLoaded', loadSources);
+  document.addEventListener('DOMContentLoaded', () => {
+    loadSources();
+
+    document.getElementById('filter-ip').addEventListener('input', (e) => {
+      clearTimeout(_filterTimer);
+      _filterTimer = setTimeout(() => {
+        _sourcesFilter = e.target.value.trim();
+        _sourcesPage = 1;
+        loadSources();
+      }, 300);
+    });
+  });
 
   document.getElementById('search-btn').addEventListener('click', doSearch);
   document.getElementById('search-input').addEventListener('keydown', (e) => {
@@ -14,15 +29,26 @@ if (document.getElementById('sources-tbody')) {
 
 async function loadSources() {
   try {
-    const sources = await api('GET', `/logs/${SPACE_ID}/sources`);
+    const params = new URLSearchParams({
+      page: _sourcesPage,
+      per_page: 50,
+      filter_ip: _sourcesFilter,
+    });
+    const res = await api('GET', `/logs/${SPACE_ID}/sources?${params}`);
     const tbody = document.getElementById('sources-tbody');
-    if (!sources.length) {
+
+    const countEl = document.getElementById('sources-count');
+    if (countEl) countEl.textContent = res.total ? `${res.total} source(s)` : '';
+
+    if (!res.items.length) {
       tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted" style="padding:32px">
-        Aucun log reçu sur cet espace. Envoyez des logs syslog sur le port correspondant.
+        ${_sourcesFilter ? 'Aucune source ne correspond au filtre.' : 'Aucun log reçu sur cet espace.'}
       </td></tr>`;
+      document.getElementById('sources-pagination').style.display = 'none';
       return;
     }
-    tbody.innerHTML = sources.map(s => `
+
+    tbody.innerHTML = res.items.map(s => `
       <tr style="cursor:pointer" onclick="window.location='/logs/${SPACE_ID}/${escHtml(s.ip)}'">
         <td><strong>${escHtml(s.ip)}</strong></td>
         <td>${formatBytes(s.size_bytes)}</td>
@@ -36,9 +62,27 @@ async function loadSources() {
         </td>
       </tr>
     `).join('');
+
+    renderSourcesPagination(res.page, res.pages);
   } catch (err) {
     showToast(err.message, 'error');
   }
+}
+
+function renderSourcesPagination(page, pages) {
+  const el = document.getElementById('sources-pagination');
+  if (pages <= 1) { el.style.display = 'none'; return; }
+  el.style.display = 'flex';
+  el.innerHTML = `
+    <button class="btn btn-secondary btn-sm" onclick="goSourcesPage(${page - 1})" ${page <= 1 ? 'disabled' : ''}>← Préc.</button>
+    <span class="pagination-info">Page ${page} / ${pages}</span>
+    <button class="btn btn-secondary btn-sm" onclick="goSourcesPage(${page + 1})" ${page >= pages ? 'disabled' : ''}>Suiv. →</button>
+  `;
+}
+
+function goSourcesPage(p) {
+  _sourcesPage = p;
+  loadSources();
 }
 
 // ── Delete source IP ──────────────────────────────────────────────────────────

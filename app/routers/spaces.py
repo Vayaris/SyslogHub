@@ -24,6 +24,7 @@ def _space_out(space: Space, with_stats: bool = True) -> SpaceOut:
         enabled=space.enabled,
         description=space.description,
         allowed_ip=getattr(space, "allowed_ip", None),
+        tcp_enabled=bool(getattr(space, "tcp_enabled", False)),
         created_at=space.created_at,
         updated_at=space.updated_at,
         stats=stats,
@@ -56,6 +57,7 @@ def create_space(
         enabled=True,
         description=body.description,
         allowed_ip=body.allowed_ip,
+        tcp_enabled=body.tcp_enabled,
         created_at=now,
         updated_at=now,
     )
@@ -66,8 +68,13 @@ def create_space(
     all_spaces = db.query(Space).all()
     ok, msg = rsyslog_svc.apply_rsyslog_config(all_spaces)
     if not ok:
-        # Don't roll back the DB — the space is created, rsyslog will retry on next change
-        pass
+        # Rollback: rsyslog couldn't open the port
+        db.delete(space)
+        db.commit()
+        raise HTTPException(
+            status_code=400,
+            detail=f"Impossible d'ouvrir le port {body.port} : {msg}",
+        )
 
     return _space_out(space)
 
@@ -106,6 +113,9 @@ def update_space(
         reload_needed = True
     if "allowed_ip" in body.model_fields_set:
         space.allowed_ip = body.allowed_ip
+        reload_needed = True
+    if body.tcp_enabled is not None and body.tcp_enabled != getattr(space, "tcp_enabled", False):
+        space.tcp_enabled = body.tcp_enabled
         reload_needed = True
 
     space.updated_at = datetime.now(timezone.utc).isoformat()

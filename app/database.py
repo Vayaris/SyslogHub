@@ -1,5 +1,5 @@
 import secrets
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 from . import config
 
@@ -21,22 +21,25 @@ def get_db():
 
 def init_db():
     import bcrypt
-    from sqlalchemy import text
     from .models import Space, Setting
 
     Base.metadata.create_all(bind=engine)
 
-    # Migration: add allowed_ip column if it doesn't exist yet
+    # Migrations: add columns added after initial release
+    _migrations = [
+        "ALTER TABLE spaces ADD COLUMN allowed_ip TEXT",
+        "ALTER TABLE spaces ADD COLUMN tcp_enabled INTEGER NOT NULL DEFAULT 0",
+    ]
     with engine.connect() as conn:
-        try:
-            conn.execute(text("ALTER TABLE spaces ADD COLUMN allowed_ip TEXT"))
-            conn.commit()
-        except Exception:
-            pass  # Column already exists
+        for stmt in _migrations:
+            try:
+                conn.execute(text(stmt))
+                conn.commit()
+            except Exception:
+                pass  # Column already exists
 
     db = SessionLocal()
     try:
-        # Default settings
         defaults = {
             "retention_days": "90",
             "admin_username": "admin",
@@ -48,7 +51,6 @@ def init_db():
             if not existing:
                 db.add(Setting(key=key, value=value))
 
-        # Default space: port 514
         existing_space = db.query(Space).filter(Space.port == 514).first()
         if not existing_space:
             from datetime import datetime, timezone

@@ -1,15 +1,15 @@
 import os
-import subprocess
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from ..auth import get_current_user, hash_password, verify_password
 from ..database import get_db
 from ..models import Setting, Space
 from ..schemas import SettingsOut, SettingsUpdate, SystemStatus
-from ..services.log_scanner import total_log_size
+from ..services.log_scanner import total_log_size, volume_by_day
+from ..utils import service_active
 from .. import config
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -27,17 +27,6 @@ def _set_setting(db: Session, key: str, value: str):
     else:
         db.add(Setting(key=key, value=value))
     db.commit()
-
-
-def _service_active(name: str) -> bool:
-    try:
-        result = subprocess.run(
-            ["systemctl", "is-active", name],
-            capture_output=True, text=True, timeout=5
-        )
-        return result.stdout.strip() == "active"
-    except Exception:
-        return False
 
 
 @router.get("", response_model=SettingsOut)
@@ -93,10 +82,18 @@ def system_status(
         pass
 
     return SystemStatus(
-        rsyslog_active=_service_active("rsyslog"),
-        nginx_active=_service_active("nginx"),
+        rsyslog_active=service_active("rsyslog"),
+        nginx_active=service_active("nginx"),
         total_log_size_bytes=total_log_size(),
         total_spaces=total,
         enabled_spaces=enabled,
         db_size_bytes=db_size,
     )
+
+
+@router.get("/volume")
+def log_volume(
+    days: int = Query(default=7, ge=1, le=90),
+    _: str = Depends(get_current_user),
+):
+    return volume_by_day(days)

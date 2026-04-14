@@ -1,5 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
   loadDashboard();
+  loadVolumeChart();
 });
 
 async function loadDashboard() {
@@ -93,4 +94,132 @@ async function toggleSpace(id, enabled) {
 
 function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── Volume chart ──────────────────────────────────────────────────────────────
+
+async function loadVolumeChart() {
+  try {
+    const data = await api('GET', '/settings/volume?days=7');
+    renderVolumeChart(data);
+  } catch (_) {
+    // Non-critical — hide chart container on failure
+    const c = document.getElementById('chart-container');
+    if (c) c.style.display = 'none';
+  }
+}
+
+function renderVolumeChart(data) {
+  const canvas = document.getElementById('volume-chart');
+  if (!canvas) return;
+
+  const container = document.getElementById('chart-container');
+  const W = container.clientWidth || 800;
+  canvas.width = W;
+
+  const ctx = canvas.getContext('2d');
+  const H = canvas.height;
+  const PAD = { top: 16, right: 20, bottom: 40, left: 56 };
+  const chartW = W - PAD.left - PAD.right;
+  const chartH = H - PAD.top - PAD.bottom;
+
+  const maxBytes = Math.max(...data.map(d => d.bytes), 1);
+  const totalBytes = data.reduce((s, d) => s + d.bytes, 0);
+
+  // Update total label
+  const totalEl = document.getElementById('chart-total');
+  if (totalEl) totalEl.textContent = `Total : ${formatBytes(totalBytes)}`;
+
+  // Colors from CSS variables (read from computed style)
+  const style = getComputedStyle(document.documentElement);
+  const colorPrimary = style.getPropertyValue('--color-primary').trim() || '#2563eb';
+  const colorBorder  = style.getPropertyValue('--color-border').trim()  || '#e2e8f0';
+  const colorMuted   = style.getPropertyValue('--color-text-muted').trim() || '#64748b';
+
+  ctx.clearRect(0, 0, W, H);
+
+  const barCount = data.length;
+  const gap = 8;
+  const barW = Math.max(4, (chartW - gap * (barCount - 1)) / barCount);
+
+  // Y-axis grid lines
+  ctx.strokeStyle = colorBorder;
+  ctx.lineWidth = 1;
+  const gridLines = 4;
+  for (let i = 0; i <= gridLines; i++) {
+    const y = PAD.top + (chartH / gridLines) * i;
+    ctx.beginPath();
+    ctx.moveTo(PAD.left, y);
+    ctx.lineTo(PAD.left + chartW, y);
+    ctx.stroke();
+
+    // Y label
+    const val = maxBytes * (1 - i / gridLines);
+    ctx.fillStyle = colorMuted;
+    ctx.font = '10px ' + (style.getPropertyValue('--font').trim() || 'sans-serif');
+    ctx.textAlign = 'right';
+    ctx.fillText(formatBytes(val, 0), PAD.left - 6, y + 3);
+  }
+
+  // Bars + X labels
+  data.forEach((d, i) => {
+    const x = PAD.left + i * (barW + gap);
+    const barH = d.bytes > 0 ? Math.max(2, (d.bytes / maxBytes) * chartH) : 0;
+    const y = PAD.top + chartH - barH;
+
+    ctx.fillStyle = colorPrimary;
+    ctx.beginPath();
+    ctx.roundRect(x, y, barW, barH, [3, 3, 0, 0]);
+    ctx.fill();
+
+    // X label: short date (day/month)
+    const parts = d.date.split('-');
+    const label = `${parts[2]}/${parts[1]}`;
+    ctx.fillStyle = colorMuted;
+    ctx.font = '10px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(label, x + barW / 2, H - PAD.bottom + 14);
+  });
+
+  // Tooltip on hover
+  canvas.onmousemove = (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+
+    let hit = null;
+    data.forEach((d, i) => {
+      const x = PAD.left + i * (barW + gap);
+      if (mx >= x && mx <= x + barW && my >= PAD.top && my <= PAD.top + chartH) {
+        hit = { d, x, i };
+      }
+    });
+
+    // Redraw to clear previous tooltip
+    canvas.onmousemove._redrawBase && canvas.onmousemove._redrawBase();
+
+    if (hit) {
+      const tx = hit.x + barW / 2;
+      const ty = PAD.top + 8;
+      const label = `${hit.d.date}  ${formatBytes(hit.d.bytes)}`;
+      ctx.font = 'bold 11px sans-serif';
+      const tw = ctx.measureText(label).width + 16;
+      const th = 22;
+      const bx = Math.min(Math.max(tx - tw / 2, 4), W - tw - 4);
+
+      ctx.fillStyle = 'rgba(15,23,42,0.85)';
+      ctx.beginPath();
+      ctx.roundRect(bx, ty, tw, th, 4);
+      ctx.fill();
+
+      ctx.fillStyle = '#fff';
+      ctx.textAlign = 'left';
+      ctx.fillText(label, bx + 8, ty + 15);
+    }
+  };
+
+  // Store redraw function for tooltip clear
+  const redraw = () => renderVolumeChart(data);
+  canvas.onmousemove._redrawBase = redraw;
+  canvas.onmouseleave = redraw;
 }

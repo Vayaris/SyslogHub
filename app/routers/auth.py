@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Response, Depends, HTTPException
+from fastapi import APIRouter, Request, Response, Depends, HTTPException
 from ..schemas import LoginRequest
 from ..auth import authenticate_user, create_session, get_current_user
 
@@ -6,15 +6,16 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
 @router.post("/login")
-def login(body: LoginRequest, response: Response):
+def login(body: LoginRequest, request: Request, response: Response):
     if not authenticate_user(body.username, body.password):
         raise HTTPException(status_code=401, detail="Identifiants invalides")
     token = create_session(body.username)
+    is_https = request.url.scheme == "https"
     response.set_cookie(
         key="session",
         value=token,
         httponly=True,
-        secure=True,
+        secure=is_https,
         samesite="strict",
         path="/",
         max_age=86400,

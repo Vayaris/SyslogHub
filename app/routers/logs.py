@@ -1,5 +1,8 @@
+import io
 import ipaddress
+import re
 import subprocess
+import zipfile
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -11,7 +14,8 @@ from .. import config
 from ..database import get_db
 from ..models import Space
 from ..schemas import (
-    FileInfo, LogViewResult, SearchResponse, SearchResult, SourceInfo
+    FileInfo, LogViewResult, SearchResponse, SearchResult,
+    SourceInfo, SourceListResponse,
 )
 from ..services import log_scanner
 
@@ -25,21 +29,22 @@ def _get_space_or_404(space_id: int, db: Session) -> Space:
     return space
 
 
-def _validate_log_path(port: int, ip: str, filename: str) -> Path:
+def _validate_ip(ip: str) -> str:
     try:
         ipaddress.ip_address(ip)
+        return ip
     except ValueError:
         raise HTTPException(status_code=400, detail="Adresse IP invalide")
 
+
+def _validate_log_path(port: int, ip: str, filename: str) -> Path:
+    _validate_ip(ip)
     base = Path(config.LOG_ROOT).resolve() / str(port)
     candidate = (base / filename).resolve()
-
     if not str(candidate).startswith(str(base) + "/"):
         raise HTTPException(status_code=403, detail="Accès refusé")
-
     if not candidate.exists():
         raise HTTPException(status_code=404, detail="Fichier introuvable")
-
     return candidate
 
 
@@ -64,36 +69,35 @@ def search_logs(
         if not log_dir.exists():
             continue
 
+        # Anchor regex on known log_dir to avoid colon-ambiguity in grep output
+        line_re = re.compile(
+            rf'^({re.escape(str(log_dir))}/[^:]+):(\d+):(.*)$'
+        )
+
         try:
             proc = subprocess.run(
-                ["grep", "-rn", "--include=*.log", "-m", str(lines), q, str(log_dir)],
-                capture_output=True,
-                text=True,
-                timeout=10,
+                ["grep", "-rn", "--include=*.log",
+                 "-m", str(lines), "--", q, str(log_dir)],
+                capture_output=True, text=True, timeout=10,
             )
-            for line in proc.stdout.splitlines():
+            for raw in proc.stdout.splitlines():
                 if len(results) >= lines:
                     truncated = True
                     break
-                # Format: /path/to/log:linenum:content
-                parts = line.split(":", 2)
-                if len(parts) < 3:
+                m = line_re.match(raw)
+                if not m:
                     continue
-                filepath = parts[0]
-                try:
-                    lineno = int(parts[1])
-                except ValueError:
-                    continue
-                content = parts[2]
+                filepath, lineno_str, content = m.group(1), m.group(2), m.group(3)
                 fname = Path(filepath).name
-                ip = fname.replace(".log", "").split(".log.")[0]
+                # Extract IP: everything before the first .log
+                ip_part = fname.split(".log")[0]
                 results.append(SearchResult(
                     space_id=space.id,
                     space_name=space.name,
                     port=space.port,
-                    source_ip=ip,
+                    source_ip=ip_part,
                     filename=fname,
-                    line_number=lineno,
+                    line_number=int(lineno_str),
                     line=content,
                 ))
         except subprocess.TimeoutExpired:
@@ -110,10 +114,7 @@ def delete_source(
     _: str = Depends(get_current_user),
 ):
     space = _get_space_or_404(space_id, db)
-    try:
-        ipaddress.ip_address(ip)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Adresse IP invalide")
+    _validate_ip(ip)
 
     log_dir = Path(config.LOG_ROOT) / str(space.port)
     if not log_dir.exists():
@@ -131,15 +132,30 @@ def delete_source(
     return {"ok": True, "deleted_files": deleted}
 
 
-@router.get("/{space_id}/sources", response_model=list[SourceInfo])
+@router.get("/{space_id}/sources", response_model=SourceListResponse)
 def list_sources(
     space_id: int,
+    page: int = Query(1, ge=1),
+    per_page: int = Query(50, ge=1, le=200),
+    filter_ip: str = Query(default=""),
     db: Session = Depends(get_db),
     _: str = Depends(get_current_user),
 ):
     space = _get_space_or_404(space_id, db)
     sources = log_scanner.list_sources(space.port)
-    return [SourceInfo(**s) for s in sources]
+
+    if filter_ip:
+        fl = filter_ip.lower()
+        sources = [s for s in sources if fl in s["ip"]]
+
+    total = len(sources)
+    pages = max(1, (total + per_page - 1) // per_page)
+    start = (page - 1) * per_page
+    items = [SourceInfo(**s) for s in sources[start:start + per_page]]
+
+    return SourceListResponse(
+        items=items, total=total, page=page, per_page=per_page, pages=pages
+    )
 
 
 @router.get("/{space_id}/sources/{ip}/files", response_model=list[FileInfo])
@@ -150,10 +166,7 @@ def list_files(
     _: str = Depends(get_current_user),
 ):
     space = _get_space_or_404(space_id, db)
-    try:
-        ipaddress.ip_address(ip)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Adresse IP invalide")
+    _validate_ip(ip)
     files = log_scanner.list_files(space.port, ip)
     return [FileInfo(**f) for f in files]
 
@@ -195,4 +208,64 @@ def download_log(
         file_streamer(),
         media_type="application/octet-stream",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/{space_id}/sources/{ip}/download-zip")
+def download_source_zip(
+    space_id: int,
+    ip: str,
+    db: Session = Depends(get_db),
+    _: str = Depends(get_current_user),
+):
+    space = _get_space_or_404(space_id, db)
+    _validate_ip(ip)
+
+    log_dir = Path(config.LOG_ROOT) / str(space.port)
+    files = [
+        f for f in log_dir.iterdir()
+        if f.is_file() and (f.name == f"{ip}.log" or f.name.startswith(f"{ip}.log."))
+    ] if log_dir.exists() else []
+
+    if not files:
+        raise HTTPException(status_code=404, detail="Aucun fichier pour cette source")
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for f in files:
+            zf.write(f, f.name)
+    buf.seek(0)
+
+    safe_ip = ip.replace(":", "-")
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{safe_ip}-logs.zip"'},
+    )
+
+
+@router.get("/{space_id}/download-zip")
+def download_space_zip(
+    space_id: int,
+    db: Session = Depends(get_db),
+    _: str = Depends(get_current_user),
+):
+    space = _get_space_or_404(space_id, db)
+    log_dir = Path(config.LOG_ROOT) / str(space.port)
+
+    if not log_dir.exists():
+        raise HTTPException(status_code=404, detail="Aucun log pour cet espace")
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for f in log_dir.rglob("*"):
+            if f.is_file():
+                zf.write(f, f.relative_to(log_dir))
+    buf.seek(0)
+
+    safe_name = space.name.replace(" ", "_").lower()
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}-port{space.port}.zip"'},
     )

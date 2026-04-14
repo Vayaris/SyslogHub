@@ -55,6 +55,15 @@
       </p>
     </div>
 
+    <div class="form-group">
+      <label class="checkbox-label">
+        <input type="checkbox" id="tcp-enabled" name="tcp_enabled"
+               {% if space and space.tcp_enabled %}checked{% endif %}>
+        Activer TCP en plus d'UDP
+      </label>
+      <p class="help-text">Par défaut, seul UDP est activé. Cochez pour recevoir aussi via TCP (même port).</p>
+    </div>
+
     <div id="form-error" class="alert alert-danger" style="display:none"></div>
 
     <div class="form-actions">

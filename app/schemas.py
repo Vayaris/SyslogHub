@@ -16,6 +16,7 @@ class SpaceOut(BaseModel):
     enabled: bool
     description: Optional[str]
     allowed_ip: Optional[str]
+    tcp_enabled: bool
     created_at: str
     updated_at: str
     stats: Optional[SpaceStats] = None
@@ -29,6 +30,7 @@ class SpaceCreate(BaseModel):
     port: int = Field(..., ge=1, le=65535)
     description: Optional[str] = Field(None, max_length=255)
     allowed_ip: Optional[str] = Field(None, max_length=45)
+    tcp_enabled: bool = False
 
     @field_validator("allowed_ip")
     @classmethod
@@ -47,6 +49,7 @@ class SpaceUpdate(BaseModel):
     description: Optional[str] = Field(None, max_length=255)
     enabled: Optional[bool] = None
     allowed_ip: Optional[str] = Field(None, max_length=45)
+    tcp_enabled: Optional[bool] = None
 
     @field_validator("allowed_ip")
     @classmethod
@@ -92,6 +95,14 @@ class SourceInfo(BaseModel):
     size_bytes: int
     line_count: int
     last_modified: str
+
+
+class SourceListResponse(BaseModel):
+    items: list[SourceInfo]
+    total: int
+    page: int
+    per_page: int
+    pages: int
 
 
 class FileInfo(BaseModel):
