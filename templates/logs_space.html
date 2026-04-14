@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Logs — {{ space.name }} — Syslog Server{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <nav class="breadcrumb">
+      <a href="/dashboard">Dashboard</a>
+      <span>/</span>
+      <a href="/spaces">Espaces</a>
+      <span>/</span>
+      <span>{{ space.name }}</span>
+    </nav>
+    <h2>{{ space.name }} <span class="badge badge-port">:{{ space.port }}</span></h2>
+    <p class="text-muted">Sources connectées à cet espace</p>
+  </div>
+</div>
+
+<!-- Search -->
+<div class="search-bar">
+  <input type="text" id="search-input" placeholder="Rechercher dans les logs…" class="search-input">
+  <button class="btn btn-primary" id="search-btn">Rechercher</button>
+</div>
+
+<!-- Search results -->
+<div id="search-results" style="display:none">
+  <div class="card">
+    <div class="card-header">
+      <h3>Résultats de recherche</h3>
+      <button class="btn btn-secondary btn-sm" onclick="clearSearch()">Fermer</button>
+    </div>
+    <div id="search-content"></div>
+  </div>
+</div>
+
+<!-- Sources list -->
+<div class="card" id="sources-card">
+  <table class="table" id="sources-table">
+    <thead>
+      <tr>
+        <th>Source IP</th>
+        <th>Taille</th>
+        <th>Lignes (est.)</th>
+        <th>Dernière activité</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody id="sources-tbody">
+      <tr><td colspan="5" class="text-center text-muted">Chargement…</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<script>
+  const SPACE_ID = {{ space.id }};
+  const SPACE_NAME = '{{ space.name }}';
+</script>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/logs.js"></script>
+{% endblock %}

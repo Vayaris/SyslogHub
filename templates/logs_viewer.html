@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Viewer — {{ filename }} — Syslog Server{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <nav class="breadcrumb">
+      <a href="/dashboard">Dashboard</a>
+      <span>/</span>
+      <a href="/logs/{{ space.id }}">{{ space.name }}</a>
+      <span>/</span>
+      <a href="/logs/{{ space.id }}/{{ ip }}">{{ ip }}</a>
+      <span>/</span>
+      <span>{{ filename }}</span>
+    </nav>
+    <h2>{{ filename }}</h2>
+  </div>
+  <a href="/api/logs/{{ space.id }}/sources/{{ ip }}/download?filename={{ filename }}"
+     class="btn btn-secondary">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+      <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+    </svg>
+    Télécharger
+  </a>
+</div>
+
+<!-- Controls -->
+<div class="viewer-controls">
+  <div class="viewer-controls-left">
+    <label>Lignes :</label>
+    <select id="lines-select" class="select-sm">
+      <option value="50">50</option>
+      <option value="100" selected>100</option>
+      <option value="500">500</option>
+      <option value="1000">1000</option>
+    </select>
+    <label>Filtre :</label>
+    <input type="text" id="filter-input" placeholder="Filtrer les lignes…" class="input-sm">
+    <label class="checkbox-label">
+      <input type="checkbox" id="autorefresh-toggle">
+      Auto-refresh (5s)
+    </label>
+  </div>
+  <div class="viewer-controls-right">
+    <span id="line-info" class="text-muted text-sm"></span>
+    <button class="btn btn-secondary btn-sm" id="prev-btn" disabled>← Précédent</button>
+    <button class="btn btn-secondary btn-sm" id="next-btn" disabled>Suivant →</button>
+  </div>
+</div>
+
+<!-- Log output -->
+<div class="log-viewer-card">
+  <pre id="log-output" class="log-output">Chargement…</pre>
+</div>
+
+<script>
+  const SPACE_ID = {{ space.id }};
+  const SOURCE_IP = '{{ ip }}';
+  const FILENAME = '{{ filename }}';
+</script>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/logs.js"></script>
+{% endblock %}

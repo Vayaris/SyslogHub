@@ -1,0 +1,181 @@
+# SyslogHub
+
+Serveur SYSLOG centralisé avec interface web HTTPS — simple à déployer, facile à maintenir.
+
+## Fonctionnalités
+
+- Réception des logs syslog UDP sur plusieurs ports configurables
+- Organisation par **espaces** (port + nom personnalisé)
+- Séparation automatique des logs par adresse IP source
+- Interface web HTTPS moderne (dashboard, visualiseur, téléchargement)
+- Recherche texte dans les logs
+- Configuration dynamique sans redémarrage manuel
+- Rétention et rotation automatiques
+- Authentification par login/mot de passe
+
+## Stack
+
+| Composant | Rôle |
+|-----------|------|
+| **rsyslog** | Réception UDP multi-ports |
+| **FastAPI + Uvicorn** | API REST + interface web |
+| **SQLite** | Stockage configuration |
+| **Nginx** | Reverse proxy HTTPS |
+
+## Prérequis
+
+- Debian 11/12 ou Ubuntu 22.04/24.04
+- Root ou sudo
+- Ports 80, 443, 514 (UDP) accessibles
+
+---
+
+## Installation
+
+### Méthode rapide (curl)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Vayaris/SyslogHub/main/scripts/install.sh | bash
+```
+
+### Méthode manuelle
+
+```bash
+git clone https://github.com/Vayaris/SyslogHub.git
+cd SyslogHub
+bash scripts/install.sh
+```
+
+L'installeur effectue automatiquement :
+1. Installation des dépendances système (nginx, python3, rsyslog, openssl…)
+2. Création du virtualenv Python et installation des packages
+3. Génération d'un certificat TLS auto-signé (10 ans)
+4. Configuration nginx HTTPS avec rate-limiting sur le login
+5. Configuration rsyslog (port 514 par défaut)
+6. Initialisation de la base SQLite
+7. Démarrage et activation des services systemd
+
+**Durée estimée : 2–3 minutes**
+
+### Après installation
+
+Accéder à l'interface : `https://<IP_DU_SERVEUR>/`
+
+| Identifiant | Valeur par défaut |
+|-------------|-------------------|
+| Utilisateur | `admin` |
+| Mot de passe | `changeme` |
+
+> **Changer le mot de passe immédiatement** dans **Paramètres → Sécurité**.
+
+---
+
+## Configuration
+
+### Ajouter un espace syslog
+
+Dans l'interface web : **Espaces → Nouvel espace**
+
+- Choisir un port UDP (ex: `30514`)
+- Donner un nom (ex: `Firewall`)
+- La config rsyslog est mise à jour automatiquement
+
+### Configurer vos équipements
+
+Pointer les équipements réseau (firewall, switch, serveurs) vers l'IP du serveur :
+
+```
+# Cisco IOS
+logging host <IP_SERVEUR> transport udp port 514
+
+# Fortinet
+config log syslogd setting
+  set status enable
+  set server <IP_SERVEUR>
+  set port 514
+end
+
+# Linux (rsyslog)
+*.* @<IP_SERVEUR>:514
+
+# Linux (syslog-ng)
+destination d_remote { udp("<IP_SERVEUR>" port(514)); };
+```
+
+### Test de réception
+
+```bash
+# netcat
+echo "<14>Test message" | nc -u -w1 <IP_SERVEUR> 514
+
+# logger
+logger -n <IP_SERVEUR> -P 514 -d "Test depuis $(hostname)"
+```
+
+---
+
+## Structure des logs
+
+```
+/var/log/syslog-server/
+├── 514/                    # Espace "Default" (port 514)
+│   ├── 192.168.1.1.log     # Un fichier par IP source
+│   └── 10.0.0.5.log
+└── 30514/                  # Espace "Firewall" (port 30514)
+    └── 192.168.1.254.log
+```
+
+---
+
+## Gestion des services
+
+```bash
+# État
+systemctl status syslog-server rsyslog nginx
+
+# Logs de l'application
+journalctl -u syslog-server -f
+
+# Redémarrage
+systemctl restart syslog-server
+
+# Rétention manuelle (supprime les fichiers > retention_days)
+/opt/syslog-server/venv/bin/python3 /opt/syslog-server/scripts/retention_cleanup.py
+```
+
+---
+
+## Désinstallation
+
+```bash
+bash /opt/syslog-server/scripts/uninstall.sh
+```
+
+Le script propose de conserver ou supprimer les fichiers de logs reçus.
+
+---
+
+## Sécurité
+
+- HTTPS obligatoire (redirection automatique HTTP → HTTPS)
+- Certificat auto-signé (remplaçable par un vrai certificat dans `/etc/ssl/syslog-server/`)
+- Rate-limiting sur le login (5 req/min par IP)
+- Cookie de session HttpOnly, Secure, SameSite=Strict
+- Protection path traversal sur le visualiseur de logs
+- Headers de sécurité nginx (HSTS, X-Frame-Options, CSP)
+
+### Remplacer le certificat auto-signé
+
+```bash
+# Copier votre certificat
+cp votre_cert.pem /etc/ssl/syslog-server/server.crt
+cp votre_key.pem  /etc/ssl/syslog-server/server.key
+chmod 600 /etc/ssl/syslog-server/server.key
+systemctl reload nginx
+```
+
+---
+
+## License
+
+MIT

@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Syslog Server{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>Dashboard</h2>
+    <p class="text-muted">Vue d'ensemble des espaces syslog</p>
+  </div>
+  <a href="/spaces/new" class="btn btn-primary">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+    </svg>
+    Nouvel espace
+  </a>
+</div>
+
+<!-- System status bar -->
+<div class="stats-bar" id="stats-bar">
+  <div class="stat-item">
+    <span class="stat-label">Espaces actifs</span>
+    <span class="stat-value" id="stat-enabled">—</span>
+  </div>
+  <div class="stat-item">
+    <span class="stat-label">Espaces total</span>
+    <span class="stat-value" id="stat-total">—</span>
+  </div>
+  <div class="stat-item">
+    <span class="stat-label">Taille logs</span>
+    <span class="stat-value" id="stat-size">—</span>
+  </div>
+  <div class="stat-item">
+    <span class="stat-label">rsyslog</span>
+    <span class="badge" id="stat-rsyslog">—</span>
+  </div>
+  <div class="stat-item">
+    <span class="stat-label">nginx</span>
+    <span class="badge" id="stat-nginx">—</span>
+  </div>
+</div>
+
+<!-- Spaces grid -->
+<div id="spaces-grid" class="spaces-grid">
+  <div class="loading-placeholder">Chargement…</div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/dashboard.js"></script>
+{% endblock %}

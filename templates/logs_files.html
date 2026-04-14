@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Fichiers — {{ ip }} — Syslog Server{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <nav class="breadcrumb">
+      <a href="/dashboard">Dashboard</a>
+      <span>/</span>
+      <a href="/logs/{{ space.id }}">{{ space.name }}</a>
+      <span>/</span>
+      <span>{{ ip }}</span>
+    </nav>
+    <h2>{{ ip }}</h2>
+    <p class="text-muted">Fichiers de logs — Espace {{ space.name }} (port {{ space.port }})</p>
+  </div>
+</div>
+
+<div class="card">
+  <table class="table" id="files-table">
+    <thead>
+      <tr>
+        <th>Fichier</th>
+        <th>Taille</th>
+        <th>Modifié</th>
+        <th>Type</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody id="files-tbody">
+      <tr><td colspan="5" class="text-center text-muted">Chargement…</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<script>
+  const SPACE_ID = {{ space.id }};
+  const SOURCE_IP = '{{ ip }}';
+</script>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/logs.js"></script>
+{% endblock %}

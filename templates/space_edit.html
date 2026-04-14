@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}{% if mode == 'create' %}Nouvel espace{% else %}Modifier l'espace{% endif %} — Syslog Server{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <nav class="breadcrumb">
+      <a href="/spaces">Espaces</a>
+      <span>/</span>
+      <span>{% if mode == 'create' %}Nouvel espace{% else %}Modifier{% endif %}</span>
+    </nav>
+    <h2>{% if mode == 'create' %}Créer un espace{% else %}Modifier l'espace{% endif %}</h2>
+  </div>
+</div>
+
+<div class="card" style="max-width:600px">
+  <form id="space-form">
+    <div class="form-group">
+      <label for="name">Nom <span class="required">*</span></label>
+      <input type="text" id="name" name="name" required maxlength="100"
+             placeholder="Ex: Firewall, Switch Core…"
+             value="{{ space.name if space else '' }}">
+    </div>
+
+    <div class="form-group">
+      <label for="port">Port UDP <span class="required">*</span></label>
+      {% if mode == 'edit' %}
+        <input type="text" value="{{ space.port }}" disabled class="input-disabled">
+        <p class="help-text">Le port ne peut pas être modifié après création.</p>
+      {% else %}
+        <input type="number" id="port" name="port" required min="1" max="65535"
+               placeholder="514" value="">
+        <p class="help-text">Port 514 est le standard syslog UDP. Les ports &lt; 1024 nécessitent root.</p>
+      {% endif %}
+    </div>
+
+    <div class="form-group">
+      <label for="description">Description</label>
+      <input type="text" id="description" name="description" maxlength="255"
+             placeholder="Description optionnelle"
+             value="{{ space.description if space and space.description else '' }}">
+    </div>
+
+    <div id="form-error" class="alert alert-danger" style="display:none"></div>
+
+    <div class="form-actions">
+      <a href="/spaces" class="btn btn-secondary">Annuler</a>
+      <button type="submit" class="btn btn-primary" id="submit-btn">
+        {% if mode == 'create' %}Créer l'espace{% else %}Enregistrer{% endif %}
+      </button>
+    </div>
+  </form>
+</div>
+
+<script>
+  const MODE = '{{ mode }}';
+  const SPACE_ID = {{ space.id if space else 'null' }};
+</script>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/spaces.js"></script>
+{% endblock %}
