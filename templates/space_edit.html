@@ -41,6 +41,20 @@
              value="{{ space.description if space and space.description else '' }}">
     </div>
 
+    <div class="form-group">
+      <label for="allowed-ip">
+        IP source autorisée
+        <span class="badge badge-warning" style="font-size:11px;vertical-align:middle;margin-left:4px">optionnel</span>
+      </label>
+      <input type="text" id="allowed-ip" name="allowed_ip"
+             placeholder="Ex: 192.168.1.100"
+             value="{{ space.allowed_ip if space and space.allowed_ip else '' }}">
+      <p class="help-text">
+        Si renseigné, seuls les logs provenant de cette adresse IP seront acceptés.
+        Laissez vide pour accepter toutes les sources.
+      </p>
+    </div>
+
     <div id="form-error" class="alert alert-danger" style="display:none"></div>
 
     <div class="form-actions">

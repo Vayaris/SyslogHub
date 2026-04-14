@@ -102,6 +102,35 @@ def search_logs(
     return SearchResponse(results=results, truncated=truncated)
 
 
+@router.delete("/{space_id}/sources/{ip}")
+def delete_source(
+    space_id: int,
+    ip: str,
+    db: Session = Depends(get_db),
+    _: str = Depends(get_current_user),
+):
+    space = _get_space_or_404(space_id, db)
+    try:
+        ipaddress.ip_address(ip)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Adresse IP invalide")
+
+    log_dir = Path(config.LOG_ROOT) / str(space.port)
+    if not log_dir.exists():
+        raise HTTPException(status_code=404, detail="Aucun log pour cet espace")
+
+    deleted = []
+    for f in log_dir.iterdir():
+        if f.is_file() and (f.name == f"{ip}.log" or f.name.startswith(f"{ip}.log.")):
+            f.unlink()
+            deleted.append(f.name)
+
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Aucun fichier trouvé pour cette source")
+
+    return {"ok": True, "deleted_files": deleted}
+
+
 @router.get("/{space_id}/sources", response_model=list[SourceInfo])
 def list_sources(
     space_id: int,

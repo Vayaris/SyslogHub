@@ -29,14 +29,51 @@ async function loadSources() {
         <td>${s.line_count.toLocaleString()}</td>
         <td>${formatDate(s.last_modified)}</td>
         <td>
-          <a href="/logs/${SPACE_ID}/${escHtml(s.ip)}" class="btn btn-secondary btn-sm"
-             onclick="event.stopPropagation()">Voir</a>
+          <div style="display:flex;gap:6px" onclick="event.stopPropagation()">
+            <a href="/logs/${SPACE_ID}/${escHtml(s.ip)}" class="btn btn-secondary btn-sm">Voir</a>
+            <button class="btn btn-danger btn-sm" onclick="confirmDeleteSource('${escHtml(s.ip)}')">Supprimer</button>
+          </div>
         </td>
       </tr>
     `).join('');
   } catch (err) {
     showToast(err.message, 'error');
   }
+}
+
+// ── Delete source IP ──────────────────────────────────────────────────────────
+let _deleteSourceTarget = null;
+
+function confirmDeleteSource(ip) {
+  _deleteSourceTarget = ip;
+  document.getElementById('modal-source-ip').textContent = ip;
+  document.getElementById('modal-delete-source').style.display = 'flex';
+  document.getElementById('modal-source-confirm').onclick = executeDeleteSource;
+}
+
+function closeSourceModal() {
+  document.getElementById('modal-delete-source').style.display = 'none';
+  _deleteSourceTarget = null;
+}
+
+async function executeDeleteSource() {
+  if (!_deleteSourceTarget) return;
+  const ip = _deleteSourceTarget;
+  closeSourceModal();
+  try {
+    const res = await api('DELETE', `/logs/${SPACE_ID}/sources/${ip}`);
+    showToast(`Source ${ip} supprimée (${res.deleted_files.length} fichier(s))`, 'success');
+    loadSources();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+// Close modal on overlay click
+if (document.getElementById('modal-delete-source')) {
+  document.getElementById('modal-delete-source').addEventListener('click', (e) => {
+    if (e.target.id === 'modal-delete-source') closeSourceModal();
+  });
 }
 
 async function doSearch() {

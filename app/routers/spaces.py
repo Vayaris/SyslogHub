@@ -23,6 +23,7 @@ def _space_out(space: Space, with_stats: bool = True) -> SpaceOut:
         port=space.port,
         enabled=space.enabled,
         description=space.description,
+        allowed_ip=getattr(space, "allowed_ip", None),
         created_at=space.created_at,
         updated_at=space.updated_at,
         stats=stats,
@@ -54,6 +55,7 @@ def create_space(
         port=body.port,
         enabled=True,
         description=body.description,
+        allowed_ip=body.allowed_ip,
         created_at=now,
         updated_at=now,
     )
@@ -101,6 +103,9 @@ def update_space(
         space.description = body.description
     if body.enabled is not None and body.enabled != space.enabled:
         space.enabled = body.enabled
+        reload_needed = True
+    if "allowed_ip" in body.model_fields_set:
+        space.allowed_ip = body.allowed_ip
         reload_needed = True
 
     space.updated_at = datetime.now(timezone.utc).isoformat()

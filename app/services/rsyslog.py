@@ -37,10 +37,9 @@ def generate_rsyslog_config(spaces: list) -> str:
             "",
         ]
 
-    # One ruleset per space
+    # One ruleset per space (with optional IP filter)
     for space in enabled:
-        lines += [
-            f'ruleset(name="rs_{space.port}") {{',
+        action_block = [
             f'    action(',
             f'        type="omfile"',
             f'        dynaFile="tpl_{space.port}"',
@@ -49,9 +48,26 @@ def generate_rsyslog_config(spaces: list) -> str:
             f'        fileOwner="syslog"',
             f'        fileGroup="adm"',
             f'    )',
-            f"}}",
-            "",
         ]
+        allowed_ip = getattr(space, "allowed_ip", None)
+        if allowed_ip:
+            # Only accept messages from the specified source IP
+            lines += [
+                f'ruleset(name="rs_{space.port}") {{',
+                f'    if $fromhost-ip == "{allowed_ip}" then {{',
+            ] + [f'    {l}' for l in action_block] + [
+                f'    }}',
+                f'    stop',
+                f"}}",
+                "",
+            ]
+        else:
+            lines += [
+                f'ruleset(name="rs_{space.port}") {{',
+            ] + action_block + [
+                f"}}",
+                "",
+            ]
 
     # One input per space
     for space in enabled:

@@ -21,9 +21,18 @@ def get_db():
 
 def init_db():
     import bcrypt
+    from sqlalchemy import text
     from .models import Space, Setting
 
     Base.metadata.create_all(bind=engine)
+
+    # Migration: add allowed_ip column if it doesn't exist yet
+    with engine.connect() as conn:
+        try:
+            conn.execute(text("ALTER TABLE spaces ADD COLUMN allowed_ip TEXT"))
+            conn.commit()
+        except Exception:
+            pass  # Column already exists
 
     db = SessionLocal()
     try:

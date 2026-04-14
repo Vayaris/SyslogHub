@@ -1,4 +1,5 @@
-from pydantic import BaseModel, Field
+import ipaddress
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional
 
 
@@ -14,6 +15,7 @@ class SpaceOut(BaseModel):
     port: int
     enabled: bool
     description: Optional[str]
+    allowed_ip: Optional[str]
     created_at: str
     updated_at: str
     stats: Optional[SpaceStats] = None
@@ -26,12 +28,36 @@ class SpaceCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     port: int = Field(..., ge=1, le=65535)
     description: Optional[str] = Field(None, max_length=255)
+    allowed_ip: Optional[str] = Field(None, max_length=45)
+
+    @field_validator("allowed_ip")
+    @classmethod
+    def validate_ip(cls, v):
+        if v is None or v.strip() == "":
+            return None
+        try:
+            ipaddress.ip_address(v.strip())
+            return v.strip()
+        except ValueError:
+            raise ValueError(f"Adresse IP invalide : {v}")
 
 
 class SpaceUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     description: Optional[str] = Field(None, max_length=255)
     enabled: Optional[bool] = None
+    allowed_ip: Optional[str] = Field(None, max_length=45)
+
+    @field_validator("allowed_ip")
+    @classmethod
+    def validate_ip(cls, v):
+        if v is None or v.strip() == "":
+            return None
+        try:
+            ipaddress.ip_address(v.strip())
+            return v.strip()
+        except ValueError:
+            raise ValueError(f"Adresse IP invalide : {v}")
 
 
 class LoginRequest(BaseModel):

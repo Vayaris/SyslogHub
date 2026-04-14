@@ -15,6 +15,7 @@ class Space(Base):
     port = Column(Integer, nullable=False, unique=True)
     enabled = Column(Boolean, nullable=False, default=True)
     description = Column(Text, nullable=True)
+    allowed_ip = Column(String(45), nullable=True)
     created_at = Column(String(32), nullable=False, default=_now)
     updated_at = Column(String(32), nullable=False, default=_now, onupdate=_now)
 
