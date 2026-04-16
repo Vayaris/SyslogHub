@@ -63,6 +63,51 @@
       <div class="loading-placeholder">Chargement…</div>
     </div>
   </div>
+
+  <!-- Omada integration -->
+  <div class="card">
+    <div class="card-header">
+      <h3>Intégration Omada</h3>
+      <span class="badge" id="omada-status-badge">—</span>
+    </div>
+    <form id="omada-form" style="padding:0 24px 24px">
+      <p class="text-muted" style="padding-top:16px;margin-bottom:16px">
+        Connectez SyslogHub à votre contrôleur TP-Link Omada SDN pour enrichir
+        les logs avec les noms et informations des points d'accès.
+      </p>
+      <div class="form-group">
+        <label for="omada-url">URL du contrôleur</label>
+        <input type="text" id="omada-url" placeholder="https://omada.local:8043">
+        <p class="help-text">Adresse HTTPS du contrôleur Omada (port 8043 par défaut).</p>
+      </div>
+      <div class="form-group">
+        <label for="omada-username">Nom d'utilisateur</label>
+        <input type="text" id="omada-username" placeholder="admin">
+      </div>
+      <div class="form-group">
+        <label for="omada-password">Mot de passe</label>
+        <input type="password" id="omada-password" placeholder="••••••••">
+        <p class="help-text">Laissez vide pour conserver le mot de passe actuel.</p>
+      </div>
+      <div class="form-group">
+        <label for="omada-site">Nom du site</label>
+        <input type="text" id="omada-site" placeholder="Default">
+        <p class="help-text">Nom exact du site Omada (sensible à la casse).</p>
+      </div>
+      <div class="form-group">
+        <label class="checkbox-label">
+          <input type="checkbox" id="omada-verify-ssl">
+          Vérifier le certificat SSL
+        </label>
+        <p class="help-text">Décochez si le contrôleur utilise un certificat auto-signé.</p>
+      </div>
+      <div id="omada-test-result" style="margin-bottom:12px;display:none"></div>
+      <div style="display:flex;gap:8px">
+        <button type="submit" class="btn btn-primary">Enregistrer</button>
+        <button type="button" class="btn btn-secondary" onclick="testOmada()">Tester la connexion</button>
+      </div>
+    </form>
+  </div>
 </div>
 {% endblock %}
 

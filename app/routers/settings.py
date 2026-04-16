@@ -7,8 +7,9 @@ from sqlalchemy.orm import Session
 from ..auth import get_current_user, hash_password, verify_password
 from ..database import get_db
 from ..models import Setting, Space
-from ..schemas import SettingsOut, SettingsUpdate, SystemStatus
+from ..schemas import SettingsOut, SettingsUpdate, SystemStatus, OmadaSettings
 from ..services.log_scanner import total_log_size, volume_by_day
+from ..services import omada as omada_svc
 from ..utils import service_active
 from .. import config
 
@@ -97,3 +98,62 @@ def log_volume(
     _: str = Depends(get_current_user),
 ):
     return volume_by_day(days)
+
+
+# ── Omada integration ──────────────────────────────────────────────────────────
+
+@router.get("/omada", response_model=OmadaSettings)
+def get_omada_settings(
+    db: Session = Depends(get_db),
+    _: str = Depends(get_current_user),
+):
+    return OmadaSettings(
+        url=_get_setting(db, "omada_url") or "",
+        username=_get_setting(db, "omada_username") or "",
+        site_name=_get_setting(db, "omada_site") or "",
+        verify_ssl=(_get_setting(db, "omada_verify_ssl") or "false") == "true",
+        configured=bool(_get_setting(db, "omada_url")),
+    )
+
+
+@router.put("/omada")
+def update_omada_settings(
+    body: OmadaSettings,
+    db: Session = Depends(get_db),
+    _: str = Depends(get_current_user),
+):
+    _set_setting(db, "omada_url", body.url or "")
+    _set_setting(db, "omada_username", body.username or "")
+    if body.password:
+        _set_setting(db, "omada_password", body.password)
+    _set_setting(db, "omada_site", body.site_name or "")
+    _set_setting(db, "omada_verify_ssl", "true" if body.verify_ssl else "false")
+
+    # Rebuild the Omada client singleton
+    if body.url and body.username and body.site_name:
+        pwd = body.password or _get_setting(db, "omada_password") or ""
+        omada_svc.build_client(
+            url=body.url,
+            username=body.username,
+            password=pwd,
+            site_name=body.site_name,
+            verify_ssl=body.verify_ssl,
+        )
+    else:
+        omada_svc.clear_client()
+
+    return {"ok": True}
+
+
+@router.get("/omada/test")
+def test_omada_connection(
+    _: str = Depends(get_current_user),
+):
+    client = omada_svc.get_client()
+    if not client:
+        raise HTTPException(status_code=400, detail="Intégration Omada non configurée")
+    try:
+        result = client.test_connection()
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Connexion Omada échouée : {e}")

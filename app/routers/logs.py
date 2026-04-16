@@ -17,6 +17,7 @@ from ..schemas import (
     FileInfo, LogViewResult, SearchResponse, SearchResult,
     SourceInfo, SourceListResponse,
 )
+from ..services.omada import get_client as get_omada_client
 from ..services import log_scanner
 
 router = APIRouter(prefix="/api/logs", tags=["logs"])
@@ -171,6 +172,33 @@ def list_files(
     return [FileInfo(**f) for f in files]
 
 
+@router.get("/{space_id}/ap-macs")
+def list_ap_macs(
+    space_id: int,
+    db: Session = Depends(get_db),
+    _: str = Depends(get_current_user),
+):
+    space = _get_space_or_404(space_id, db)
+    macs = log_scanner.list_ap_macs(space.port)
+
+    omada = get_omada_client()
+    result = []
+    for mac in macs:
+        info: dict = {"mac": mac, "name": None, "model": None, "status": None}
+        if omada:
+            try:
+                ap = omada.get_ap_by_mac(mac)
+                if ap:
+                    info["name"] = ap.get("name")
+                    info["model"] = ap.get("model")
+                    info["status"] = ap.get("status")
+            except Exception:
+                pass
+        result.append(info)
+
+    return {"aps": result, "count": len(result)}
+
+
 @router.get("/{space_id}/sources/{ip}/view", response_model=LogViewResult)
 def view_log(
     space_id: int,
@@ -179,12 +207,16 @@ def view_log(
     lines: int = Query(default=100, ge=1, le=5000),
     offset: int = Query(default=0, ge=0),
     filter: str = Query(default=""),
+    ap_mac: str = Query(default=""),
     db: Session = Depends(get_db),
     _: str = Depends(get_current_user),
 ):
     space = _get_space_or_404(space_id, db)
     path = _validate_log_path(space.port, ip, filename)
-    result = log_scanner.read_log_tail(path, lines=lines, offset=offset, filter_str=filter)
+    result = log_scanner.read_log_tail(
+        path, lines=lines, offset=offset,
+        filter_str=filter, ap_mac_filter=ap_mac,
+    )
     return LogViewResult(**result)
 
 

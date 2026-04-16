@@ -1,9 +1,48 @@
 import gzip
 import os
+import re
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from .. import config
+
+_AP_MAC_RE = re.compile(r'AP MAC=([0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){5})')
+
+
+def extract_ap_mac(line: str) -> str | None:
+    """Extract AP MAC address from a log line. Returns None if not present."""
+    m = _AP_MAC_RE.search(line)
+    return m.group(1) if m else None
+
+
+def list_ap_macs(port: int) -> list[str]:
+    """Scan all log files (active + rotated) in the space, return sorted unique AP MACs."""
+    log_dir = Path(config.LOG_ROOT) / str(port)
+    macs: set[str] = set()
+    if not log_dir.exists():
+        return []
+    try:
+        files = [f for f in log_dir.iterdir() if f.is_file()]
+    except PermissionError:
+        return []
+    for f in files:
+        try:
+            if f.suffix == ".gz":
+                import gzip as _gz
+                with _gz.open(f, "rt", errors="replace") as fh:
+                    for line in fh:
+                        mac = extract_ap_mac(line)
+                        if mac:
+                            macs.add(mac)
+            else:
+                with open(f, "r", errors="replace") as fh:
+                    for line in fh:
+                        mac = extract_ap_mac(line)
+                        if mac:
+                            macs.add(mac)
+        except OSError:
+            pass
+    return sorted(macs)
 
 
 def _format_dt(ts: float) -> str:
@@ -32,7 +71,12 @@ def get_space_stats(port: int) -> dict:
     total_size = 0
     last_mtime = 0.0
 
-    for f in log_dir.iterdir():
+    try:
+        entries = list(log_dir.iterdir())
+    except PermissionError:
+        entries = []
+
+    for f in entries:
         if not f.is_file():
             continue
         stat = f.stat()
@@ -178,7 +222,8 @@ def _tail_file(path: Path, max_lines: int) -> list[bytes]:
 
 
 def read_log_tail(
-    path: Path, lines: int = 100, offset: int = 0, filter_str: str = ""
+    path: Path, lines: int = 100, offset: int = 0,
+    filter_str: str = "", ap_mac_filter: str = ""
 ) -> dict:
     try:
         is_gz = str(path).endswith(".gz")
@@ -191,6 +236,9 @@ def read_log_tail(
             raw_lines = [l.decode("utf-8", errors="replace") for l in raw_bytes]
 
         total = _estimate_lines(path) if not is_gz else len(raw_lines)
+
+        if ap_mac_filter:
+            raw_lines = [l for l in raw_lines if ap_mac_filter.lower() in l.lower()]
 
         if filter_str:
             fl = filter_str.lower()

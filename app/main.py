@@ -10,6 +10,7 @@ from .database import get_db, init_db
 from .auth import validate_session, create_session
 from .routers import auth, spaces, logs, settings
 from .utils import service_active
+from .services import omada as omada_svc
 from . import config
 
 BASE = Path("/opt/syslog-server")
@@ -211,17 +212,36 @@ def startup():
     # Ensure initial rsyslog config is applied
     db: Session = next(get_db())
     try:
-        from .models import Space as SpaceModel
+        from .models import Space as SpaceModel, Setting
         from .services import rsyslog as rsyslog_svc
-        spaces = db.query(SpaceModel).all()
-        if spaces:
+
+        spaces_list = db.query(SpaceModel).all()
+        if spaces_list:
             try:
-                rsyslog_svc.apply_rsyslog_config(spaces)
+                rsyslog_svc.apply_rsyslog_config(spaces_list)
             except Exception as e:
-                # Non-fatal: rsyslog is already configured from install
                 import logging
                 logging.getLogger("syslog-server").warning(
                     f"rsyslog config apply at startup: {e}"
                 )
+
+        # Restore Omada client if configured
+        def _s(key):
+            row = db.query(Setting).filter(Setting.key == key).first()
+            return row.value if row else None
+
+        omada_url = _s("omada_url")
+        if omada_url:
+            try:
+                omada_svc.build_client(
+                    url=omada_url,
+                    username=_s("omada_username") or "",
+                    password=_s("omada_password") or "",
+                    site_name=_s("omada_site") or "",
+                    verify_ssl=(_s("omada_verify_ssl") or "false") == "true",
+                )
+            except Exception as e:
+                import logging
+                logging.getLogger("syslog-server").warning(f"Omada client init: {e}")
     finally:
         db.close()

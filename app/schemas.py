@@ -131,3 +131,12 @@ class SearchResult(BaseModel):
 class SearchResponse(BaseModel):
     results: list[SearchResult]
     truncated: bool
+
+
+class OmadaSettings(BaseModel):
+    url: Optional[str] = None
+    username: Optional[str] = None
+    password: Optional[str] = Field(None, description="Write-only — never returned")
+    site_name: Optional[str] = None
+    verify_ssl: bool = False
+    configured: bool = False

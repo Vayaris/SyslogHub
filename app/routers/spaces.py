@@ -15,8 +15,11 @@ router = APIRouter(prefix="/api/spaces", tags=["spaces"])
 def _space_out(space: Space, with_stats: bool = True) -> SpaceOut:
     stats = None
     if with_stats:
-        raw = log_scanner.get_space_stats(space.port)
-        stats = SpaceStats(**raw)
+        try:
+            raw = log_scanner.get_space_stats(space.port)
+            stats = SpaceStats(**raw)
+        except Exception:
+            stats = SpaceStats(source_count=0, total_size_bytes=0, last_seen=None)
     return SpaceOut(
         id=space.id,
         name=space.name,

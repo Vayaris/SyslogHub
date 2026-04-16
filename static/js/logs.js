@@ -203,12 +203,84 @@ async function loadFiles() {
   }
 }
 
+// ── AP MAC view (logs_space.html) ─────────────────────────────────────────────
+let _currentView = 'ip'; // 'ip' | 'ap'
+
+function setView(view) {
+  _currentView = view;
+  const ipTable = document.getElementById('sources-table');
+  const apTable = document.getElementById('ap-table');
+  const filterIp = document.getElementById('filter-ip');
+  const pagination = document.getElementById('sources-pagination');
+  const btnIp = document.getElementById('btn-view-ip');
+  const btnAp = document.getElementById('btn-view-ap');
+
+  if (view === 'ap') {
+    ipTable && (ipTable.style.display = 'none');
+    apTable && (apTable.style.display = '');
+    filterIp && (filterIp.style.display = 'none');
+    pagination && (pagination.style.display = 'none');
+    btnIp && btnIp.classList.remove('active');
+    btnAp && btnAp.classList.add('active');
+    loadAPView();
+  } else {
+    ipTable && (ipTable.style.display = '');
+    apTable && (apTable.style.display = 'none');
+    filterIp && (filterIp.style.display = '');
+    btnIp && btnIp.classList.add('active');
+    btnAp && btnAp.classList.remove('active');
+    loadSources();
+  }
+}
+
+async function loadAPView() {
+  const tbody = document.getElementById('ap-tbody');
+  if (!tbody) return;
+  tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted" style="padding:24px">Analyse des logs…</td></tr>`;
+  try {
+    const res = await api('GET', `/logs/${SPACE_ID}/ap-macs`);
+    if (!res.aps.length) {
+      tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted" style="padding:24px">
+        Aucun AP MAC détecté dans les logs de cet espace.<br>
+        <span style="font-size:12px">Le format attendu est <code>AP MAC=xx:xx:xx:xx:xx:xx</code></span>
+      </td></tr>`;
+      return;
+    }
+    tbody.innerHTML = res.aps.map(ap => {
+      const statusBadge = ap.status != null
+        ? `<span class="badge ${ap.status === 1 ? 'badge-success' : 'badge-warning'}">${ap.status === 1 ? 'Connecté' : 'Hors ligne'}</span>`
+        : '<span class="text-muted">—</span>';
+      return `
+        <tr>
+          <td><code style="font-size:13px">${escHtml(ap.mac)}</code></td>
+          <td>${ap.name ? escHtml(ap.name) : '<span class="text-muted">—</span>'}</td>
+          <td>${ap.model ? escHtml(ap.model) : '<span class="text-muted">—</span>'}</td>
+          <td>${statusBadge}</td>
+          <td>
+            <a href="/logs/${SPACE_ID}?ap_mac=${encodeURIComponent(ap.mac)}" class="btn btn-secondary btn-sm">
+              Voir logs
+            </a>
+          </td>
+        </tr>`;
+    }).join('');
+    const countEl = document.getElementById('sources-count');
+    if (countEl) countEl.textContent = `${res.count} AP(s) détecté(s)`;
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
 // ── Log viewer (logs_viewer.html) ────────────────────────────────────────────
-let _viewerState = { offset: 0, lines: 100, filter: '', autoRefresh: null };
+let _viewerState = { offset: 0, lines: 100, filter: '', apMac: '', autoRefresh: null };
+let _apMacMap = {}; // mac → {name, model}
 
 if (document.getElementById('log-output')) {
   document.addEventListener('DOMContentLoaded', () => {
     _viewerState.lines = parseInt(document.getElementById('lines-select').value, 10);
+
+    // Populate AP MAC dropdown
+    loadAPMacDropdown();
+
     loadLogContent();
 
     document.getElementById('lines-select').addEventListener('change', (e) => {
@@ -251,6 +323,45 @@ if (document.getElementById('log-output')) {
   });
 }
 
+async function loadAPMacDropdown() {
+  const sel = document.getElementById('ap-mac-select');
+  if (!sel) return;
+  try {
+    const res = await api('GET', `/logs/${SPACE_ID}/ap-macs`);
+    if (!res.aps.length) return;
+
+    res.aps.forEach(ap => {
+      _apMacMap[ap.mac] = ap;
+      const opt = document.createElement('option');
+      opt.value = ap.mac;
+      opt.textContent = ap.name ? `${ap.mac}  (${ap.name})` : ap.mac;
+      sel.appendChild(opt);
+    });
+
+    const bar = document.getElementById('ap-filter-bar');
+    if (bar) bar.style.display = 'flex';
+  } catch (_) { /* non-critical */ }
+}
+
+function applyAPFilter() {
+  const mac = document.getElementById('ap-mac-select').value;
+  _viewerState.apMac = mac;
+  _viewerState.offset = 0;
+
+  const badge = document.getElementById('ap-name-badge');
+  if (badge) {
+    const ap = _apMacMap[mac];
+    if (mac && ap && ap.name) {
+      badge.textContent = ap.name + (ap.model ? ` — ${ap.model}` : '');
+      badge.style.display = '';
+    } else {
+      badge.style.display = 'none';
+    }
+  }
+
+  loadLogContent();
+}
+
 async function loadLogContent() {
   const output = document.getElementById('log-output');
   const params = new URLSearchParams({
@@ -258,6 +369,7 @@ async function loadLogContent() {
     lines: _viewerState.lines,
     offset: _viewerState.offset,
     filter: _viewerState.filter,
+    ap_mac: _viewerState.apMac || '',
   });
 
   try {
@@ -265,9 +377,10 @@ async function loadLogContent() {
       `/logs/${SPACE_ID}/sources/${SOURCE_IP}/view?${params}`);
 
     if (!res.lines.length) {
-      output.textContent = _viewerState.filter
-        ? `Aucune ligne ne correspond au filtre "${_viewerState.filter}"`
-        : 'Aucun contenu.';
+      const noFilter = !_viewerState.filter && !_viewerState.apMac;
+      output.textContent = noFilter
+        ? 'Aucun contenu.'
+        : `Aucune ligne ne correspond au filtre${_viewerState.apMac ? ` AP MAC=${_viewerState.apMac}` : ''}${_viewerState.filter ? ` "${_viewerState.filter}"` : ''}.`;
     } else {
       output.textContent = res.lines.join('\n');
     }

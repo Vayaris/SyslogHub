@@ -1,6 +1,7 @@
 document.addEventListener('DOMContentLoaded', async () => {
   await loadSettings();
   await loadStatus();
+  await loadOmadaSettings();
 });
 
 async function loadSettings() {
@@ -96,3 +97,57 @@ document.getElementById('security-form').addEventListener('submit', async (e) =>
     showToast(err.message, 'error');
   }
 });
+
+// ── Omada integration ─────────────────────────────────────────────────────────
+
+async function loadOmadaSettings() {
+  try {
+    const s = await api('GET', '/settings/omada');
+    document.getElementById('omada-url').value = s.url || '';
+    document.getElementById('omada-username').value = s.username || '';
+    document.getElementById('omada-site').value = s.site_name || '';
+    document.getElementById('omada-verify-ssl').checked = s.verify_ssl || false;
+
+    const badge = document.getElementById('omada-status-badge');
+    if (badge) {
+      badge.textContent = s.configured ? 'Configuré' : 'Non configuré';
+      badge.className = 'badge ' + (s.configured ? 'badge-success' : 'badge-warning');
+    }
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+document.getElementById('omada-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    await api('PUT', '/settings/omada', {
+      url: document.getElementById('omada-url').value.trim(),
+      username: document.getElementById('omada-username').value.trim(),
+      password: document.getElementById('omada-password').value || null,
+      site_name: document.getElementById('omada-site').value.trim(),
+      verify_ssl: document.getElementById('omada-verify-ssl').checked,
+    });
+    document.getElementById('omada-password').value = '';
+    showToast('Intégration Omada enregistrée', 'success');
+    await loadOmadaSettings();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+});
+
+async function testOmada() {
+  const resultEl = document.getElementById('omada-test-result');
+  resultEl.style.display = 'block';
+  resultEl.className = 'alert alert-info';
+  resultEl.textContent = 'Connexion en cours…';
+  try {
+    const res = await api('GET', '/settings/omada/test');
+    resultEl.className = 'alert alert-success';
+    const sample = res.sample.map(a => `${a.name || '?'} (${a.mac})`).join(', ');
+    resultEl.textContent = `✓ Connexion réussie — ${res.ap_count} AP(s) sur le site "${res.site}"${sample ? ' : ' + sample : ''}`;
+  } catch (err) {
+    resultEl.className = 'alert alert-danger';
+    resultEl.textContent = err.message;
+  }
+}
