@@ -230,14 +230,18 @@ def startup():
             row = db.query(Setting).filter(Setting.key == key).first()
             return row.value if row else None
 
-        omada_url = _s("omada_url")
-        if omada_url:
+        omada_base = _s("omada_base_url")
+        omada_id   = _s("omada_id")
+        omada_cid  = _s("omada_client_id")
+        omada_csec = _s("omada_client_secret")
+        if omada_base and omada_id and omada_cid and omada_csec:
             try:
                 omada_svc.build_client(
-                    url=omada_url,
-                    username=_s("omada_username") or "",
-                    password=_s("omada_password") or "",
-                    site_name=_s("omada_site") or "",
+                    base_url=omada_base,
+                    omada_id=omada_id,
+                    client_id=omada_cid,
+                    client_secret=omada_csec,
+                    site_name=_s("omada_site") or "Default",
                     verify_ssl=(_s("omada_verify_ssl") or "false") == "true",
                 )
             except Exception as e:

@@ -103,9 +103,10 @@ document.getElementById('security-form').addEventListener('submit', async (e) =>
 async function loadOmadaSettings() {
   try {
     const s = await api('GET', '/settings/omada');
-    document.getElementById('omada-url').value = s.url || '';
-    document.getElementById('omada-username').value = s.username || '';
-    document.getElementById('omada-site').value = s.site_name || '';
+    document.getElementById('omada-base-url').value = s.base_url || '';
+    document.getElementById('omada-id').value = s.omada_id || '';
+    document.getElementById('omada-client-id').value = s.client_id || '';
+    document.getElementById('omada-site').value = s.site_name || 'Default';
     document.getElementById('omada-verify-ssl').checked = s.verify_ssl || false;
 
     const badge = document.getElementById('omada-status-badge');
@@ -120,15 +121,17 @@ async function loadOmadaSettings() {
 
 document.getElementById('omada-form').addEventListener('submit', async (e) => {
   e.preventDefault();
+  const secret = document.getElementById('omada-client-secret').value;
   try {
     await api('PUT', '/settings/omada', {
-      url: document.getElementById('omada-url').value.trim(),
-      username: document.getElementById('omada-username').value.trim(),
-      password: document.getElementById('omada-password').value || null,
-      site_name: document.getElementById('omada-site').value.trim(),
+      base_url: document.getElementById('omada-base-url').value.trim(),
+      omada_id: document.getElementById('omada-id').value.trim(),
+      client_id: document.getElementById('omada-client-id').value.trim(),
+      client_secret: secret || null,
+      site_name: document.getElementById('omada-site').value.trim() || 'Default',
       verify_ssl: document.getElementById('omada-verify-ssl').checked,
     });
-    document.getElementById('omada-password').value = '';
+    document.getElementById('omada-client-secret').value = '';
     showToast('Intégration Omada enregistrée', 'success');
     await loadOmadaSettings();
   } catch (err) {
@@ -144,10 +147,15 @@ async function testOmada() {
   try {
     const res = await api('GET', '/settings/omada/test');
     resultEl.className = 'alert alert-success';
-    const sample = res.sample.map(a => `${a.name || '?'} (${a.mac})`).join(', ');
-    resultEl.textContent = `✓ Connexion réussie — ${res.ap_count} AP(s) sur le site "${res.site}"${sample ? ' : ' + sample : ''}`;
+    const sample = res.sample.map(a => `${a.name || '?'} (${a.mac})${a.model ? ' — ' + a.model : ''}`).join(', ');
+    resultEl.innerHTML = `<strong>✓ Connexion réussie</strong> — ${res.ap_count} AP(s) sur le site "<em>${escHtml(res.site_name)}</em>"` +
+      (sample ? `<br><span style="font-size:12px">${escHtml(sample)}</span>` : '');
   } catch (err) {
     resultEl.className = 'alert alert-danger';
     resultEl.textContent = err.message;
   }
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }

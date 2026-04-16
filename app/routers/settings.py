@@ -107,12 +107,14 @@ def get_omada_settings(
     db: Session = Depends(get_db),
     _: str = Depends(get_current_user),
 ):
+    base_url = _get_setting(db, "omada_base_url") or ""
     return OmadaSettings(
-        url=_get_setting(db, "omada_url") or "",
-        username=_get_setting(db, "omada_username") or "",
-        site_name=_get_setting(db, "omada_site") or "",
+        base_url=base_url,
+        omada_id=_get_setting(db, "omada_id") or "",
+        client_id=_get_setting(db, "omada_client_id") or "",
+        site_name=_get_setting(db, "omada_site") or "Default",
         verify_ssl=(_get_setting(db, "omada_verify_ssl") or "false") == "true",
-        configured=bool(_get_setting(db, "omada_url")),
+        configured=bool(base_url),
     )
 
 
@@ -122,21 +124,23 @@ def update_omada_settings(
     db: Session = Depends(get_db),
     _: str = Depends(get_current_user),
 ):
-    _set_setting(db, "omada_url", body.url or "")
-    _set_setting(db, "omada_username", body.username or "")
-    if body.password:
-        _set_setting(db, "omada_password", body.password)
-    _set_setting(db, "omada_site", body.site_name or "")
+    _set_setting(db, "omada_base_url", body.base_url or "")
+    _set_setting(db, "omada_id", body.omada_id or "")
+    _set_setting(db, "omada_client_id", body.client_id or "")
+    if body.client_secret:
+        _set_setting(db, "omada_client_secret", body.client_secret)
+    _set_setting(db, "omada_site", body.site_name or "Default")
     _set_setting(db, "omada_verify_ssl", "true" if body.verify_ssl else "false")
 
-    # Rebuild the Omada client singleton
-    if body.url and body.username and body.site_name:
-        pwd = body.password or _get_setting(db, "omada_password") or ""
+    # Rebuild the singleton
+    secret = body.client_secret or _get_setting(db, "omada_client_secret") or ""
+    if body.base_url and body.omada_id and body.client_id and secret:
         omada_svc.build_client(
-            url=body.url,
-            username=body.username,
-            password=pwd,
-            site_name=body.site_name,
+            base_url=body.base_url,
+            omada_id=body.omada_id,
+            client_id=body.client_id,
+            client_secret=secret,
+            site_name=body.site_name or "Default",
             verify_ssl=body.verify_ssl,
         )
     else:
@@ -153,7 +157,6 @@ def test_omada_connection(
     if not client:
         raise HTTPException(status_code=400, detail="Intégration Omada non configurée")
     try:
-        result = client.test_connection()
-        return result
+        return client.test_connection()
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Connexion Omada échouée : {e}")
