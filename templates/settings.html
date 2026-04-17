@@ -72,10 +72,10 @@
     </div>
     <form id="omada-form" style="padding:0 24px 24px">
       <p class="text-muted" style="padding-top:16px;margin-bottom:16px">
-        Connectez SyslogHub à votre contrôleur TP-Link Omada SDN via l'OpenAPI
-        pour enrichir les logs avec les noms et infos des points d'accès.
-        Créez une application OpenAPI dans <em>Paramètres → OpenAPI</em> du contrôleur
-        pour obtenir votre Client ID et Client Secret.
+        Connectez SyslogHub à votre contrôleur TP-Link Omada SDN pour enrichir
+        les logs avec les noms et infos des points d'accès.
+        Créez une application dans <em>Paramètres → OpenAPI</em> du contrôleur
+        (type "Client Credentials") pour obtenir votre Client ID et Client Secret.
       </p>
       <div class="form-group">
         <label for="omada-base-url">Interface Access Address <span class="required">*</span></label>
@@ -85,16 +85,16 @@
       <div class="form-group">
         <label for="omada-id">Omada ID <span class="required">*</span></label>
         <input type="text" id="omada-id" placeholder="e98cf5fb292125560958c7208e3b33b7" style="font-family:var(--font-mono);font-size:13px">
-        <p class="help-text">Identifiant unique du contrôleur (champ "Omada ID" dans la page de connexion OpenAPI).</p>
+        <p class="help-text">Identifiant unique du contrôleur (visible sur la page de connexion du contrôleur).</p>
       </div>
       <div class="form-group">
         <label for="omada-client-id">Client ID <span class="required">*</span></label>
-        <input type="text" id="omada-client-id" placeholder="Généré dans Paramètres → OpenAPI">
+        <input type="text" id="omada-client-id" placeholder="Généré dans Paramètres → OpenAPI" style="font-family:var(--font-mono);font-size:13px">
       </div>
       <div class="form-group">
-        <label for="omada-client-secret">Client Secret</label>
+        <label for="omada-client-secret">Client Secret <span class="required">*</span></label>
         <input type="password" id="omada-client-secret" placeholder="••••••••">
-        <p class="help-text">Laissez vide pour conserver le secret actuel.</p>
+        <p class="help-text">Laissez vide pour conserver le secret actuel. Obligatoire lors de la première configuration.</p>
       </div>
       <div class="form-group">
         <label for="omada-site">Nom du site</label>

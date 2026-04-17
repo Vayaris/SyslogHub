@@ -1,4 +1,5 @@
 import os
+import secrets
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -64,6 +65,8 @@ def update_settings(
                 status_code=400, detail="Mot de passe actuel incorrect"
             )
         _set_setting(db, "admin_password_hash", hash_password(body.new_password))
+        # Rotate session secret so all existing sessions (this browser + others) are invalidated
+        _set_setting(db, "session_secret", secrets.token_hex(32))
 
     return {"ok": True}
 
@@ -107,14 +110,16 @@ def get_omada_settings(
     db: Session = Depends(get_db),
     _: str = Depends(get_current_user),
 ):
-    base_url = _get_setting(db, "omada_base_url") or ""
+    base_url  = _get_setting(db, "omada_base_url") or ""
+    client_id = _get_setting(db, "omada_client_id") or ""
     return OmadaSettings(
         base_url=base_url,
         omada_id=_get_setting(db, "omada_id") or "",
-        client_id=_get_setting(db, "omada_client_id") or "",
+        client_id=client_id,
+        # client_secret jamais retourné
         site_name=_get_setting(db, "omada_site") or "Default",
         verify_ssl=(_get_setting(db, "omada_verify_ssl") or "false") == "true",
-        configured=bool(base_url),
+        configured=bool(base_url and client_id),
     )
 
 
@@ -126,20 +131,21 @@ def update_omada_settings(
 ):
     _set_setting(db, "omada_base_url", body.base_url or "")
     _set_setting(db, "omada_id", body.omada_id or "")
-    _set_setting(db, "omada_client_id", body.client_id or "")
+    if body.client_id:
+        _set_setting(db, "omada_client_id", body.client_id)
     if body.client_secret:
         _set_setting(db, "omada_client_secret", body.client_secret)
     _set_setting(db, "omada_site", body.site_name or "Default")
     _set_setting(db, "omada_verify_ssl", "true" if body.verify_ssl else "false")
 
-    # Rebuild the singleton
-    secret = body.client_secret or _get_setting(db, "omada_client_secret") or ""
-    if body.base_url and body.omada_id and body.client_id and secret:
+    cid  = body.client_id     or _get_setting(db, "omada_client_id")     or ""
+    csec = body.client_secret or _get_setting(db, "omada_client_secret") or ""
+    if body.base_url and body.omada_id and cid and csec:
         omada_svc.build_client(
             base_url=body.base_url,
             omada_id=body.omada_id,
-            client_id=body.client_id,
-            client_secret=secret,
+            client_id=cid,
+            client_secret=csec,
             site_name=body.site_name or "Default",
             verify_ssl=body.verify_ssl,
         )

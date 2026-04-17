@@ -134,10 +134,10 @@ class SearchResponse(BaseModel):
 
 
 class OmadaSettings(BaseModel):
-    base_url: Optional[str] = None       # Interface Access Address
-    omada_id: Optional[str] = None       # Omada ID from controller info page
-    client_id: Optional[str] = None      # OAuth2 Client ID
+    base_url:      Optional[str] = None   # Interface Access Address
+    omada_id:      Optional[str] = None   # Omada ID from controller info page
+    client_id:     Optional[str] = None   # OpenAPI Client ID
     client_secret: Optional[str] = Field(None, description="Write-only — never returned")
-    site_name: Optional[str] = "Default"
-    verify_ssl: bool = False
-    configured: bool = False
+    site_name:     Optional[str] = "Default"
+    verify_ssl:    bool = False
+    configured:    bool = False

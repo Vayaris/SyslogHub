@@ -4,14 +4,15 @@ Serveur SYSLOG centralisé avec interface web HTTPS — simple à déployer, fac
 
 ## Fonctionnalités
 
-- Réception des logs syslog UDP sur plusieurs ports configurables
-- Organisation par **espaces** (port + nom personnalisé)
+- Réception des logs syslog UDP (et TCP) sur plusieurs ports configurables
+- Organisation par **espaces** (port + nom personnalisé, allowlist IP)
 - Séparation automatique des logs par adresse IP source
-- Interface web HTTPS moderne (dashboard, visualiseur, téléchargement)
+- Interface web HTTPS moderne (dashboard, visualiseur, téléchargement ZIP, charts)
 - Recherche texte dans les logs
 - Configuration dynamique sans redémarrage manuel
-- Rétention et rotation automatiques
-- Authentification par login/mot de passe
+- Rétention et rotation automatiques + backup quotidien de la base
+- Authentification par login/mot de passe (rotation de session à chaque changement de MDP)
+- **Intégration TP-Link Omada SDN** (Northbound OpenAPI, supporte mode MSP multi-clients) : enrichissement automatique des logs avec noms et modèles des points d'accès
 
 ## Stack
 
@@ -67,6 +68,32 @@ Accéder à l'interface : `https://<IP_DU_SERVEUR>/`
 | Mot de passe | `changeme` |
 
 > **Changer le mot de passe immédiatement** dans **Paramètres → Sécurité**.
+> Après validation, toutes les sessions en cours sont automatiquement invalidées et l'utilisateur est reconnecté.
+
+### Mot de passe oublié ?
+
+Si vous vous retrouvez verrouillé dehors, un script de secours remet les identifiants par défaut (`admin` / `changeme`) et invalide toutes les sessions :
+
+```bash
+sudo /opt/syslog-server/venv/bin/python /opt/syslog-server/scripts/reset_password.py
+```
+
+---
+
+## Intégration Omada SDN (optionnelle)
+
+SyslogHub peut interroger un contrôleur **TP-Link Omada SDN** via sa **Northbound OpenAPI** (mode standalone ou MSP multi-clients, détection automatique). Une fois configuré, les vues de logs enrichissent automatiquement les AP connus avec leur nom, leur modèle et leur statut.
+
+### Pré-requis contrôleur
+
+Dans votre contrôleur Omada, aller dans **Paramètres → OpenAPI** et créer une application de type **Client Credentials**. Noter :
+- **Interface Access Address** (ex : `https://172.16.0.31:8043`)
+- **Omada ID** (visible sur la page d'accueil du contrôleur)
+- **Client ID** et **Client Secret** générés
+
+### Configuration dans SyslogHub
+
+Dans **Paramètres → Intégration Omada**, saisir les 4 champs ci-dessus, enregistrer, puis cliquer sur **Tester la connexion**. Un message de succès indique le nombre de sites et d'AP détectés.
 
 ---
 
@@ -141,6 +168,12 @@ systemctl restart syslog-server
 
 # Rétention manuelle (supprime les fichiers > retention_days)
 /opt/syslog-server/venv/bin/python3 /opt/syslog-server/scripts/retention_cleanup.py
+
+# Backup quotidien de la base
+/opt/syslog-server/venv/bin/python3 /opt/syslog-server/scripts/backup_db.py
+
+# Reset d'urgence des identifiants admin (admin / changeme)
+/opt/syslog-server/venv/bin/python3 /opt/syslog-server/scripts/reset_password.py
 ```
 
 ---

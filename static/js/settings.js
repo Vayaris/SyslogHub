@@ -89,10 +89,18 @@ document.getElementById('security-form').addEventListener('submit', async (e) =>
 
   try {
     await api('PUT', '/settings', body);
-    showToast('Sécurité mise à jour', 'success');
     document.getElementById('current-password').value = '';
     document.getElementById('new-password').value = '';
     document.getElementById('confirm-password').value = '';
+    if (body.new_password) {
+      showToast('Mot de passe mis à jour — reconnexion dans 2 secondes…', 'success');
+      setTimeout(async () => {
+        await api('POST', '/auth/logout');
+        window.location = '/login';
+      }, 2000);
+    } else {
+      showToast('Sécurité mise à jour', 'success');
+    }
   } catch (err) {
     showToast(err.message, 'error');
   }
@@ -103,10 +111,11 @@ document.getElementById('security-form').addEventListener('submit', async (e) =>
 async function loadOmadaSettings() {
   try {
     const s = await api('GET', '/settings/omada');
-    document.getElementById('omada-base-url').value = s.base_url || '';
-    document.getElementById('omada-id').value = s.omada_id || '';
+    document.getElementById('omada-base-url').value  = s.base_url || '';
+    document.getElementById('omada-id').value        = s.omada_id || '';
     document.getElementById('omada-client-id').value = s.client_id || '';
-    document.getElementById('omada-site').value = s.site_name || 'Default';
+    // omada-client-secret : jamais pré-rempli (write-only)
+    document.getElementById('omada-site').value      = s.site_name || 'Default';
     document.getElementById('omada-verify-ssl').checked = s.verify_ssl || false;
 
     const badge = document.getElementById('omada-status-badge');
@@ -124,12 +133,12 @@ document.getElementById('omada-form').addEventListener('submit', async (e) => {
   const secret = document.getElementById('omada-client-secret').value;
   try {
     await api('PUT', '/settings/omada', {
-      base_url: document.getElementById('omada-base-url').value.trim(),
-      omada_id: document.getElementById('omada-id').value.trim(),
-      client_id: document.getElementById('omada-client-id').value.trim(),
+      base_url:      document.getElementById('omada-base-url').value.trim(),
+      omada_id:      document.getElementById('omada-id').value.trim(),
+      client_id:     document.getElementById('omada-client-id').value.trim() || null,
       client_secret: secret || null,
-      site_name: document.getElementById('omada-site').value.trim() || 'Default',
-      verify_ssl: document.getElementById('omada-verify-ssl').checked,
+      site_name:     document.getElementById('omada-site').value.trim() || 'Default',
+      verify_ssl:    document.getElementById('omada-verify-ssl').checked,
     });
     document.getElementById('omada-client-secret').value = '';
     showToast('Intégration Omada enregistrée', 'success');
