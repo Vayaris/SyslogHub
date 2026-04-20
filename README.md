@@ -189,6 +189,26 @@ systemctl restart syslog-server
 
 ---
 
+## Mise à jour
+
+Pour récupérer la dernière version depuis GitHub et redémarrer le service :
+
+```bash
+sudo bash /opt/syslog-server/scripts/update.sh
+```
+
+Le script :
+1. Clone la dernière version du dépôt dans un dossier temporaire
+2. Synchronise les dossiers `app/`, `static/`, `templates/` et `scripts/` (rsync avec `--delete`)
+3. Met à jour les dépendances Python (`pip install -r requirements.txt`)
+4. Redémarre `syslog-server` (la migration SQLite additive s'exécute au démarrage)
+
+**Préservé** : la base SQLite (`data/syslog-server.db`), la configuration nginx, les certificats TLS, les logs reçus (`/var/log/syslog-server/`) et le virtualenv.
+
+> Une sauvegarde automatique de la base est créée chaque nuit dans `data/backups/`. En cas de problème après une mise à jour, restaurer le dernier backup via `cp data/backups/syslog-server_YYYYMMDD_HHMMSS.db data/syslog-server.db` puis `systemctl restart syslog-server`.
+
+---
+
 ## Désinstallation
 
 ```bash
