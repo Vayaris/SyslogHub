@@ -64,6 +64,20 @@
       <p class="help-text">Par défaut, seul UDP est activé. Cochez pour recevoir aussi via TCP (même port).</p>
     </div>
 
+    <div class="form-group">
+      <label class="checkbox-label">
+        <input type="checkbox" id="lan-mode" name="lan_mode"
+               {% if space and space.lan_mode %}checked{% endif %}>
+        Contrôleur en LAN (vue combinée "_all.log")
+      </label>
+      <p class="help-text">
+        Cochez si les logs arrivent depuis plusieurs IP locales (bornes WiFi, switches
+        qui envoient directement leurs logs). SyslogHub écrit alors un fichier
+        supplémentaire <code>_all.log</code> qui consolide toutes les sources dans
+        l'ordre d'arrivée, accessible via un bouton "Vue combinée" sur la page des logs.
+      </p>
+    </div>
+
     <div id="form-error" class="alert alert-danger" style="display:none"></div>
 
     <div class="form-actions">
@@ -88,10 +102,11 @@
   </div>
   <div style="padding:0 24px 24px">
     <p class="text-muted" style="padding-top:16px;margin-bottom:16px">
-      Connectez cet espace à un contrôleur TP-Link Omada SDN pour enrichir
-      les logs avec les noms et infos des points d'accès. Chaque espace peut
-      pointer sur un contrôleur différent. Créez une application
-      <em>Client Credentials</em> dans <em>Paramètres → OpenAPI</em> du contrôleur.
+      Connectez cet espace à un contrôleur TP-Link Omada SDN pour enrichir les
+      logs avec les noms et modèles des équipements (bornes WiFi, switches,
+      gateways). Chaque espace peut pointer sur un contrôleur différent.
+      Créez une application <em>Client Credentials</em> dans
+      <em>Paramètres → OpenAPI</em> du contrôleur.
     </p>
     <div class="form-group">
       <label for="omada-base-url">Interface Access Address</label>
@@ -118,12 +133,6 @@
       <p class="help-text">Laissez vide pour conserver le secret actuel. Obligatoire lors de la première configuration.</p>
     </div>
     <div class="form-group">
-      <label for="omada-site">Nom du site</label>
-      <input type="text" id="omada-site" placeholder="Default"
-             value="{{ space.omada_site_name if space and space.omada_site_name else '' }}">
-      <p class="help-text">Nom exact du site Omada (sensible à la casse). Laissez vide pour utiliser le premier site disponible.</p>
-    </div>
-    <div class="form-group">
       <label class="checkbox-label">
         <input type="checkbox" id="omada-verify-ssl"
                {% if space and space.omada_verify_ssl %}checked{% endif %}>
@@ -131,6 +140,10 @@
       </label>
       <p class="help-text">Décochez si le contrôleur utilise un certificat auto-signé (cas habituel en local).</p>
     </div>
+    <p class="help-text" style="margin-bottom:12px">
+      Les sites et clients MSP (s'il y en a) sont découverts automatiquement —
+      rien d'autre à configurer.
+    </p>
     <div id="omada-test-result" style="margin-bottom:12px;display:none"></div>
     {% if mode == 'edit' %}
       <button type="button" class="btn btn-secondary" onclick="testOmadaForSpace()">Tester la connexion</button>

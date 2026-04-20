@@ -55,6 +55,16 @@ def generate_rsyslog_config(spaces: list) -> str:
             f'        fileGroup="adm"',
             f'    )',
         ]
+        if getattr(space, "lan_mode", False):
+            action_lines += [
+                f'    action(',
+                f'        type="omfile"',
+                f'        file="{config.LOG_ROOT}/{space.port}/_all.log"',
+                f'        fileCreateMode="0640"',
+                f'        fileOwner="syslog"',
+                f'        fileGroup="adm"',
+                f'    )',
+            ]
         if allowed_ip:
             lines += [
                 f'ruleset(name="rs_{space.port}") {{',

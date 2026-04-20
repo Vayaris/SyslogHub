@@ -8,6 +8,14 @@ from .. import config
 
 _AP_MAC_RE = re.compile(r'AP MAC=([0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){5})')
 
+# Filenames starting with "_" are reserved (e.g. "_all.log" for LAN-mode unified
+# log). Per-IP scans must skip them since they aren't tied to a source IP.
+_RESERVED_PREFIX = "_"
+
+
+def _merged_log_path(port: int):
+    return Path(config.LOG_ROOT) / str(port) / "_all.log"
+
 
 def extract_ap_mac(line: str) -> str | None:
     """Extract AP MAC address from a log line. Returns None if not present."""
@@ -26,6 +34,8 @@ def list_ap_macs(port: int) -> list[str]:
     except PermissionError:
         return []
     for f in files:
+        if f.name.startswith(_RESERVED_PREFIX):
+            continue
         try:
             if f.suffix == ".gz":
                 import gzip as _gz
@@ -79,6 +89,8 @@ def get_space_stats(port: int) -> dict:
     for f in entries:
         if not f.is_file():
             continue
+        if f.name.startswith(_RESERVED_PREFIX):
+            continue
         stat = f.stat()
         total_size += stat.st_size
         if stat.st_mtime > last_mtime:
@@ -104,6 +116,8 @@ def list_sources(port: int) -> list[dict]:
     sources: dict[str, dict] = {}
     for f in log_dir.iterdir():
         if not f.is_file():
+            continue
+        if f.name.startswith(_RESERVED_PREFIX):
             continue
         name = f.name
         if name.endswith(".log"):
@@ -146,6 +160,8 @@ def list_files(port: int, ip: str) -> list[dict]:
 
     for f in log_dir.iterdir():
         if not f.is_file():
+            continue
+        if f.name.startswith(_RESERVED_PREFIX):
             continue
         name = f.name
         # Match exact .log or rotated variants (.log.1, .log.2.gz, etc.)

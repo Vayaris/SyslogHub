@@ -73,6 +73,7 @@ def init_db():
         "ALTER TABLE spaces ADD COLUMN omada_client_secret TEXT",
         "ALTER TABLE spaces ADD COLUMN omada_site_name TEXT",
         "ALTER TABLE spaces ADD COLUMN omada_verify_ssl INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE spaces ADD COLUMN lan_mode INTEGER NOT NULL DEFAULT 0",
     ]
     with engine.connect() as conn:
         for stmt in _migrations:

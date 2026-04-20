@@ -77,7 +77,7 @@ def search_logs(
 
         try:
             proc = subprocess.run(
-                ["grep", "-rn", "--include=*.log",
+                ["grep", "-rn", "--include=*.log", "--exclude=_all.log",
                  "-m", str(lines), "--", q, str(log_dir)],
                 capture_output=True, text=True, timeout=10,
             )
@@ -184,19 +184,21 @@ def list_ap_macs(
     omada = omada_svc.get_client_for_space(space)
     result = []
     for mac in macs:
-        info: dict = {"mac": mac, "name": None, "model": None, "status": None}
+        info: dict = {"mac": mac, "name": None, "model": None,
+                      "type": None, "status": None}
         if omada:
             try:
-                ap = omada.get_ap_by_mac(mac)
-                if ap:
-                    info["name"] = ap.get("name")
-                    info["model"] = ap.get("model")
-                    info["status"] = ap.get("status")
+                dev = omada.get_device_by_mac(mac)
+                if dev:
+                    info["name"]   = dev.get("name")
+                    info["model"]  = dev.get("model")
+                    info["type"]   = dev.get("type")
+                    info["status"] = dev.get("status")
             except Exception:
                 pass
         result.append(info)
 
-    return {"aps": result, "count": len(result)}
+    return {"devices": result, "count": len(result)}
 
 
 @router.get("/{space_id}/sources/{ip}/view", response_model=LogViewResult)
@@ -216,6 +218,27 @@ def view_log(
     result = log_scanner.read_log_tail(
         path, lines=lines, offset=offset,
         filter_str=filter, ap_mac_filter=ap_mac,
+    )
+    return LogViewResult(**result)
+
+
+@router.get("/{space_id}/merged/view", response_model=LogViewResult)
+def view_merged_log(
+    space_id: int,
+    lines: int = Query(default=100, ge=1, le=5000),
+    offset: int = Query(default=0, ge=0),
+    filter: str = Query(default=""),
+    db: Session = Depends(get_db),
+    _: str = Depends(get_current_user),
+):
+    space = _get_space_or_404(space_id, db)
+    if not getattr(space, "lan_mode", False):
+        raise HTTPException(status_code=404, detail="Mode LAN désactivé pour cet espace")
+    path = log_scanner._merged_log_path(space.port)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Aucun log reçu pour l'instant")
+    result = log_scanner.read_log_tail(
+        path, lines=lines, offset=offset, filter_str=filter,
     )
     return LogViewResult(**result)
 

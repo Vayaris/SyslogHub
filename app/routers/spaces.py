@@ -29,10 +29,10 @@ def _space_out(space: Space, with_stats: bool = True) -> SpaceOut:
         description=space.description,
         allowed_ip=getattr(space, "allowed_ip", None),
         tcp_enabled=bool(getattr(space, "tcp_enabled", False)),
+        lan_mode=bool(getattr(space, "lan_mode", False)),
         omada_base_url=space.omada_base_url or None,
         omada_id=space.omada_id or None,
         omada_client_id=space.omada_client_id or None,
-        omada_site_name=space.omada_site_name or None,
         omada_verify_ssl=bool(space.omada_verify_ssl),
         omada_configured=omada_svc.is_configured(space),
         created_at=space.created_at,
@@ -55,7 +55,6 @@ def _apply_omada_fields(space: Space, body, is_create: bool):
         "omada_base_url":   "omada_base_url",
         "omada_id":         "omada_id",
         "omada_client_id":  "omada_client_id",
-        "omada_site_name":  "omada_site_name",
     }
     for body_field, col in text_map.items():
         if is_create or body_field in fields_set:
@@ -112,6 +111,7 @@ def create_space(
         description=body.description,
         allowed_ip=body.allowed_ip,
         tcp_enabled=body.tcp_enabled,
+        lan_mode=body.lan_mode,
         created_at=now,
         updated_at=now,
     )
@@ -170,6 +170,9 @@ def update_space(
         reload_needed = True
     if body.tcp_enabled is not None and body.tcp_enabled != getattr(space, "tcp_enabled", False):
         space.tcp_enabled = body.tcp_enabled
+        reload_needed = True
+    if body.lan_mode is not None and body.lan_mode != getattr(space, "lan_mode", False):
+        space.lan_mode = body.lan_mode
         reload_needed = True
 
     omada_changed = _apply_omada_fields(space, body, is_create=False)

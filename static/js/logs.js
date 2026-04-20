@@ -236,35 +236,40 @@ function setView(view) {
 async function loadAPView() {
   const tbody = document.getElementById('ap-tbody');
   if (!tbody) return;
-  tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted" style="padding:24px">Analyse des logs…</td></tr>`;
+  tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted" style="padding:24px">Analyse des logs…</td></tr>`;
   try {
     const res = await api('GET', `/logs/${SPACE_ID}/ap-macs`);
-    if (!res.aps.length) {
-      tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted" style="padding:24px">
-        Aucun AP MAC détecté dans les logs de cet espace.<br>
+    const devices = res.devices || [];
+    if (!devices.length) {
+      tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted" style="padding:24px">
+        Aucun équipement détecté dans les logs de cet espace.<br>
         <span style="font-size:12px">Le format attendu est <code>AP MAC=xx:xx:xx:xx:xx:xx</code></span>
       </td></tr>`;
       return;
     }
-    tbody.innerHTML = res.aps.map(ap => {
-      const statusBadge = ap.status != null
-        ? `<span class="badge ${ap.status === 1 ? 'badge-success' : 'badge-warning'}">${ap.status === 1 ? 'Connecté' : 'Hors ligne'}</span>`
+    tbody.innerHTML = devices.map(d => {
+      const statusBadge = d.status != null
+        ? `<span class="badge ${d.status === 1 ? 'badge-success' : 'badge-warning'}">${d.status === 1 ? 'Connecté' : 'Hors ligne'}</span>`
+        : '<span class="text-muted">—</span>';
+      const typeLabel = d.type
+        ? `<span class="badge badge-info">${escHtml(String(d.type))}</span>`
         : '<span class="text-muted">—</span>';
       return `
         <tr>
-          <td><code style="font-size:13px">${escHtml(ap.mac)}</code></td>
-          <td>${ap.name ? escHtml(ap.name) : '<span class="text-muted">—</span>'}</td>
-          <td>${ap.model ? escHtml(ap.model) : '<span class="text-muted">—</span>'}</td>
+          <td><code style="font-size:13px">${escHtml(d.mac)}</code></td>
+          <td>${d.name ? escHtml(d.name) : '<span class="text-muted">—</span>'}</td>
+          <td>${typeLabel}</td>
+          <td>${d.model ? escHtml(d.model) : '<span class="text-muted">—</span>'}</td>
           <td>${statusBadge}</td>
           <td>
-            <a href="/logs/${SPACE_ID}?ap_mac=${encodeURIComponent(ap.mac)}" class="btn btn-secondary btn-sm">
+            <a href="/logs/${SPACE_ID}?ap_mac=${encodeURIComponent(d.mac)}" class="btn btn-secondary btn-sm">
               Voir logs
             </a>
           </td>
         </tr>`;
     }).join('');
     const countEl = document.getElementById('sources-count');
-    if (countEl) countEl.textContent = `${res.count} AP(s) détecté(s)`;
+    if (countEl) countEl.textContent = `${res.count} équipement(s) détecté(s)`;
   } catch (err) {
     showToast(err.message, 'error');
   }
@@ -326,11 +331,13 @@ if (document.getElementById('log-output')) {
 async function loadAPMacDropdown() {
   const sel = document.getElementById('ap-mac-select');
   if (!sel) return;
+  if (typeof MERGED !== 'undefined' && MERGED) return;
   try {
     const res = await api('GET', `/logs/${SPACE_ID}/ap-macs`);
-    if (!res.aps.length) return;
+    const aps = (res.devices || []).filter(d => (d.type || '').toLowerCase() === 'ap');
+    if (!aps.length) return;
 
-    res.aps.forEach(ap => {
+    aps.forEach(ap => {
       _apMacMap[ap.mac] = ap;
       const opt = document.createElement('option');
       opt.value = ap.mac;
@@ -364,17 +371,22 @@ function applyAPFilter() {
 
 async function loadLogContent() {
   const output = document.getElementById('log-output');
+  const isMerged = typeof MERGED !== 'undefined' && MERGED;
   const params = new URLSearchParams({
-    filename: FILENAME,
     lines: _viewerState.lines,
     offset: _viewerState.offset,
     filter: _viewerState.filter,
-    ap_mac: _viewerState.apMac || '',
   });
+  if (!isMerged) {
+    params.set('filename', FILENAME);
+    params.set('ap_mac', _viewerState.apMac || '');
+  }
+  const url = isMerged
+    ? `/logs/${SPACE_ID}/merged/view?${params}`
+    : `/logs/${SPACE_ID}/sources/${SOURCE_IP}/view?${params}`;
 
   try {
-    const res = await api('GET',
-      `/logs/${SPACE_ID}/sources/${SOURCE_IP}/view?${params}`);
+    const res = await api('GET', url);
 
     if (!res.lines.length) {
       const noFilter = !_viewerState.filter && !_viewerState.apMac;

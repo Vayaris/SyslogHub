@@ -12,7 +12,8 @@ Serveur SYSLOG centralisé avec interface web HTTPS — simple à déployer, fac
 - Configuration dynamique sans redémarrage manuel
 - Rétention et rotation automatiques + backup quotidien de la base
 - Authentification par login/mot de passe (rotation de session à chaque changement de MDP)
-- **Intégration TP-Link Omada SDN par espace** (Northbound OpenAPI, supporte mode MSP multi-clients) : chaque espace peut pointer sur un contrôleur distinct pour enrichir les logs avec noms et modèles des points d'accès
+- **Intégration TP-Link Omada SDN par espace** (Northbound OpenAPI, supporte mode MSP multi-clients) : chaque espace peut pointer sur un contrôleur distinct pour enrichir les logs avec noms et modèles des équipements (bornes WiFi, switches, gateways)
+- **Mode LAN** (par espace) : consolide toutes les sources dans un fichier `_all.log` supplémentaire et une vue combinée, tout en gardant la séparation par IP
 
 ## Stack
 
@@ -82,7 +83,7 @@ sudo /opt/syslog-server/venv/bin/python /opt/syslog-server/scripts/reset_passwor
 
 ## Intégration Omada SDN (optionnelle, par espace)
 
-Chaque espace SyslogHub peut être relié à un contrôleur **TP-Link Omada SDN** distinct via sa **Northbound OpenAPI** (mode standalone ou MSP multi-clients, détection automatique). Une fois configuré, les vues de logs enrichissent automatiquement les AP connus avec leur nom, leur modèle et leur statut. Cela permet d'avoir, par exemple, un espace par site/client chacun relié à son propre contrôleur.
+Chaque espace SyslogHub peut être relié à un contrôleur **TP-Link Omada SDN** distinct via sa **Northbound OpenAPI**. Le mode (standalone ou MSP multi-clients), la liste des sites et des clients (si MSP) sont **découverts automatiquement** — rien d'autre à indiquer. Une fois configuré, les vues de logs enrichissent les équipements connus (bornes WiFi, switches, gateways) avec leur nom, leur modèle et leur statut.
 
 ### Pré-requis contrôleur
 
@@ -93,7 +94,15 @@ Dans votre contrôleur Omada, aller dans **Paramètres → OpenAPI** et créer u
 
 ### Configuration dans SyslogHub
 
-Dans **Espaces → Modifier** (ou **Nouvel espace**), remplir la section **Intégration Omada** avec les 4 champs ci-dessus, enregistrer, puis cliquer sur **Tester la connexion**. Un message de succès indique le nombre de sites et d'AP détectés. Répéter l'opération pour chaque espace à connecter à un contrôleur différent.
+Dans **Espaces → Modifier** (ou **Nouvel espace**), remplir la section **Intégration Omada** avec les 4 champs ci-dessus, enregistrer, puis cliquer sur **Tester la connexion**. Le message de succès indique le mode détecté (MSP ou standard), le nombre de sites/clients et la répartition des équipements par type. Répéter l'opération pour chaque espace à connecter à un contrôleur différent.
+
+---
+
+## Mode LAN (fichier combiné)
+
+Quand un contrôleur envoie ses logs **en local** (LAN), chaque borne/switch apparaît avec son IP propre — l'UI sépare donc en de nombreux fichiers. Quand il passe par du **port-forwarding WAN**, tout arrive depuis une seule IP. Pour conserver les deux usages, activer le **Mode LAN** sur l'espace ajoute un fichier unifié `_all.log` qui consolide toutes les sources dans l'ordre d'arrivée (comportement syslog classique) sans supprimer les fichiers par-IP.
+
+Dans le formulaire de l'espace, cocher **Contrôleur en LAN**. Un bouton **Vue combinée (toutes sources)** apparaît alors sur la page des logs de l'espace et donne accès au flux unifié, avec les mêmes contrôles (tail, filtre, auto-refresh) que le viewer par-IP.
 
 ---
 
@@ -148,8 +157,10 @@ logger -n <IP_SERVEUR> -P 514 -d "Test depuis $(hostname)"
 ├── 514/                    # Espace "Default" (port 514)
 │   ├── 192.168.1.1.log     # Un fichier par IP source
 │   └── 10.0.0.5.log
-└── 30514/                  # Espace "Firewall" (port 30514)
-    └── 192.168.1.254.log
+└── 30514/                  # Espace "Firewall" (port 30514, Mode LAN activé)
+    ├── 192.168.1.254.log
+    ├── 192.168.1.255.log
+    └── _all.log            # Vue unifiée (Mode LAN uniquement)
 ```
 
 ---

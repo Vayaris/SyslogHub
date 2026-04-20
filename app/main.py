@@ -55,7 +55,7 @@ async def rolling_session(request: Request, call_next):
 def health():
     return JSONResponse({
         "status": "ok",
-        "version": "1.4.0",
+        "version": "1.5.0",
         "services": {
             "rsyslog": service_active("rsyslog"),
             "nginx": service_active("nginx"),
@@ -157,6 +157,28 @@ def logs_space_page(request: Request, space_id: int):
         db.close()
 
 
+@app.get("/logs/{space_id}/merged", response_class=HTMLResponse)
+def logs_merged_page(request: Request, space_id: int):
+    redir = _require_auth(request)
+    if redir:
+        return redir
+    db: Session = next(get_db())
+    try:
+        from .models import Space as SpaceModel
+        space = db.query(SpaceModel).filter(SpaceModel.id == space_id).first()
+        if not space:
+            return RedirectResponse(url="/dashboard", status_code=302)
+        if not getattr(space, "lan_mode", False):
+            return RedirectResponse(url=f"/logs/{space_id}", status_code=302)
+        return templates.TemplateResponse(
+            "logs_viewer.html",
+            {"request": request, "space": space, "ip": "_all",
+             "filename": "_all.log", "merged": True},
+        )
+    finally:
+        db.close()
+
+
 @app.get("/logs/{space_id}/{ip}", response_class=HTMLResponse)
 def logs_files_page(request: Request, space_id: int, ip: str):
     redir = _require_auth(request)
@@ -189,7 +211,8 @@ def logs_viewer_page(request: Request, space_id: int, ip: str):
         filename = request.query_params.get("filename", f"{ip}.log")
         return templates.TemplateResponse(
             "logs_viewer.html",
-            {"request": request, "space": space, "ip": ip, "filename": filename},
+            {"request": request, "space": space, "ip": ip,
+             "filename": filename, "merged": False},
         )
     finally:
         db.close()

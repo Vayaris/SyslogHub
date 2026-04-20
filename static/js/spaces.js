@@ -116,12 +116,15 @@ if (document.getElementById('space-form')) {
     const tcpEl = document.getElementById('tcp-enabled');
     const tcp_enabled = tcpEl ? tcpEl.checked : false;
 
+    const lanEl = document.getElementById('lan-mode');
+    const lan_mode = lanEl ? lanEl.checked : false;
+
     const omada = collectOmadaFields();
 
     try {
       if (typeof MODE !== 'undefined' && MODE === 'edit') {
         await api('PUT', `/spaces/${SPACE_ID}`, {
-          name, description, allowed_ip, tcp_enabled, ...omada,
+          name, description, allowed_ip, tcp_enabled, lan_mode, ...omada,
         });
         showToast('Espace mis à jour', 'success');
         window.location = '/spaces';
@@ -129,7 +132,7 @@ if (document.getElementById('space-form')) {
         const port = parseInt(document.getElementById('port').value, 10);
         if (!port || port < 1 || port > 65535) throw new Error('Port invalide (1-65535)');
         await api('POST', '/spaces', {
-          name, port, description, allowed_ip, tcp_enabled, ...omada,
+          name, port, description, allowed_ip, tcp_enabled, lan_mode, ...omada,
         });
         showToast('Espace créé', 'success');
         window.location = '/spaces';
@@ -151,7 +154,6 @@ function collectOmadaFields() {
     omada_base_url:   baseUrl.value.trim() || null,
     omada_id:         document.getElementById('omada-id').value.trim() || null,
     omada_client_id:  document.getElementById('omada-client-id').value.trim() || null,
-    omada_site_name:  document.getElementById('omada-site').value.trim() || null,
     omada_verify_ssl: document.getElementById('omada-verify-ssl').checked,
   };
   // Empty secret on edit = keep current; on create, send null (optional)
@@ -168,12 +170,32 @@ async function testOmadaForSpace() {
   try {
     const res = await api('GET', `/spaces/${SPACE_ID}/omada/test`);
     resultEl.className = 'alert alert-success';
-    const sample = (res.sample || []).map(a =>
-      `${a.name || '?'} (${a.mac})${a.model ? ' — ' + a.model : ''}`
-    ).join(', ');
-    resultEl.innerHTML =
-      `<strong>✓ Connexion réussie</strong> — ${res.ap_count} AP(s) sur le site "<em>${escHtml(res.site_name)}</em>"` +
-      (sample ? `<br><span style="font-size:12px">${escHtml(sample)}</span>` : '');
+
+    const parts = [];
+    parts.push(res.msp_mode ? 'Mode MSP' : 'Mode standard');
+    parts.push(`${res.sites_total} site(s)`);
+    if (res.msp_mode && res.customers_total != null) {
+      parts.push(`${res.customers_total} client(s)`);
+    }
+    const typeCounts = Object.entries(res.device_count_by_type || {})
+      .map(([t, n]) => `${n} ${t}`)
+      .join(', ');
+    parts.push(`${res.device_count} équipement(s)${typeCounts ? ' (' + typeCounts + ')' : ''}`);
+
+    const sampleLines = (res.sample || []).map(d => {
+      const bits = [];
+      if (d.name) bits.push(d.name);
+      bits.push(`${d.type || '?'}${d.model ? ' ' + d.model : ''}`);
+      if (d.customer) bits.push(d.customer);
+      if (d.site) bits.push(d.site);
+      return `${bits.join(' — ')} (${d.mac})`;
+    });
+
+    let html = `<strong>✓ Connexion réussie</strong><br>${escHtml(parts.join(' · '))}`;
+    if (sampleLines.length) {
+      html += `<div style="font-size:12px;margin-top:6px">${sampleLines.map(escHtml).join('<br>')}</div>`;
+    }
+    resultEl.innerHTML = html;
   } catch (err) {
     resultEl.className = 'alert alert-danger';
     resultEl.textContent = err.message;

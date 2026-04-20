@@ -9,12 +9,17 @@
       <span>/</span>
       <a href="/logs/{{ space.id }}">{{ space.name }}</a>
       <span>/</span>
+      {% if merged %}
+      <span>Vue combinée</span>
+      {% else %}
       <a href="/logs/{{ space.id }}/{{ ip }}">{{ ip }}</a>
       <span>/</span>
       <span>{{ filename }}</span>
+      {% endif %}
     </nav>
-    <h2>{{ filename }}</h2>
+    <h2>{% if merged %}Vue combinée — toutes sources{% else %}{{ filename }}{% endif %}</h2>
   </div>
+  {% if not merged %}
   <a href="/api/logs/{{ space.id }}/sources/{{ ip }}/download?filename={{ filename }}"
      class="btn btn-secondary">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -23,6 +28,7 @@
     </svg>
     Télécharger
   </a>
+  {% endif %}
 </div>
 
 <!-- AP MAC filter banner (hidden until populated) -->
@@ -68,6 +74,7 @@
   const SPACE_ID = {{ space.id }};
   const SOURCE_IP = '{{ ip }}';
   const FILENAME = '{{ filename }}';
+  const MERGED = {{ 'true' if merged else 'false' }};
 </script>
 {% endblock %}
 

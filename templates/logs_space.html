@@ -39,17 +39,22 @@
     <div style="display:flex;align-items:center;gap:8px;flex:1">
       <div class="view-toggle" id="view-toggle">
         <button class="toggle-btn active" id="btn-view-ip" onclick="setView('ip')">Par source IP</button>
-        <button class="toggle-btn" id="btn-view-ap" onclick="setView('ap')">Par AP MAC</button>
+        <button class="toggle-btn" id="btn-view-ap" onclick="setView('ap')">Par équipement</button>
       </div>
       <input type="text" id="filter-ip" class="input-sm" placeholder="Filtrer par IP…" style="width:180px">
       <span class="text-muted text-sm" id="sources-count"></span>
     </div>
-    <a href="/api/logs/{{ space.id }}/download-zip" class="btn btn-secondary btn-sm">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
-      </svg>
-      Tout télécharger (ZIP)
-    </a>
+    <div style="display:flex;gap:8px">
+      {% if space.lan_mode %}
+      <a href="/logs/{{ space.id }}/merged" class="btn btn-primary btn-sm">Vue combinée (toutes sources)</a>
+      {% endif %}
+      <a href="/api/logs/{{ space.id }}/download-zip" class="btn btn-secondary btn-sm">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        Tout télécharger (ZIP)
+      </a>
+    </div>
   </div>
   <!-- Vue par source IP -->
   <table class="table" id="sources-table">
@@ -68,19 +73,20 @@
   </table>
   <div id="sources-pagination" class="pagination-bar" style="display:none"></div>
 
-  <!-- Vue par AP MAC (masquée par défaut) -->
+  <!-- Vue par équipement (masquée par défaut) -->
   <table class="table" id="ap-table" style="display:none">
     <thead>
       <tr>
-        <th>AP MAC</th>
-        <th>Nom AP</th>
+        <th>MAC</th>
+        <th>Nom</th>
+        <th>Type</th>
         <th>Modèle</th>
         <th>État</th>
         <th>Actions</th>
       </tr>
     </thead>
     <tbody id="ap-tbody">
-      <tr><td colspan="5" class="text-center text-muted">Chargement…</td></tr>
+      <tr><td colspan="6" class="text-center text-muted">Chargement…</td></tr>
     </tbody>
   </table>
 </div>

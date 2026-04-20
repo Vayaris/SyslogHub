@@ -7,6 +7,10 @@ API calls  : GET {base}/openapi/v1/msp/{omadacId}/...   (MSP mode, auto-detected
              GET {base}/openapi/v1/{omadacId}/...       (standard mode)
 Headers    : Authorization: AccessToken={token}
              Accept: application/json   (required — without it the controller returns Spring 400)
+
+Sites, customers (MSP) and devices are all discovered automatically — the caller
+only provides base_url + omada_id + client credentials. `/devices/known-devices`
+returns all equipment types (AP, switch, gateway, …).
 """
 import time
 import logging
@@ -31,14 +35,12 @@ class OmadaClient:
         omada_id: str,
         client_id: str,
         client_secret: str,
-        site_name: str = "Default",
         verify_ssl: bool = False,
     ):
         self.base          = base_url.rstrip("/")
         self.omada_id      = omada_id.strip()
         self.client_id     = client_id.strip()
         self.client_secret = client_secret
-        self.site_name     = site_name.strip()
         self.verify        = verify_ssl
 
         self._token: str | None = None
@@ -141,8 +143,8 @@ class OmadaClient:
             return result.get("data", [])
         return result or []
 
-    def get_aps(self, force: bool = False) -> list[dict]:
-        """Return all APs across the MSP/controller, cached for CACHE_TTL seconds."""
+    def get_devices(self, force: bool = False) -> list[dict]:
+        """Return all known devices (AP + switch + gateway…) across the MSP/controller."""
         with self._lock:
             now = time.time()
             if not force and self._cache is not None and (now - self._cache_ts) < self.CACHE_TTL:
@@ -152,47 +154,63 @@ class OmadaClient:
                 params={"page": 1, "pageSize": 1000},
             )
             raw = result.get("data", []) if isinstance(result, dict) else (result or [])
-            aps = [d for d in raw if (d.get("type") or "").lower() == "ap"]
-            self._cache = aps
+            self._cache = raw
             self._cache_ts = now
-            return aps
+            return raw
 
-    def get_ap_by_mac(self, mac: str) -> dict | None:
+    def get_aps(self, force: bool = False) -> list[dict]:
+        return [d for d in self.get_devices(force=force)
+                if (d.get("type") or "").lower() == "ap"]
+
+    def get_device_by_mac(self, mac: str) -> dict | None:
         target = self._norm_mac(mac)
         if not target:
             return None
-        for ap in self.get_aps():
-            if self._norm_mac(ap.get("mac", "")) == target:
-                return ap
+        for d in self.get_devices():
+            if self._norm_mac(d.get("mac", "")) == target:
+                return d
+        return None
+
+    def get_ap_by_mac(self, mac: str) -> dict | None:
+        d = self.get_device_by_mac(mac)
+        if d and (d.get("type") or "").lower() == "ap":
+            return d
         return None
 
     def test_connection(self) -> dict:
         sites = self.get_sites()
-        aps   = self.get_aps(force=True)
-        matched = any(
-            (s.get("siteName") == self.site_name or s.get("name") == self.site_name)
-            for s in sites
-        )
+        devices = self.get_devices(force=True)
+
+        counts: dict[str, int] = {}
+        for d in devices:
+            t = (d.get("type") or "unknown").lower()
+            counts[t] = counts.get(t, 0) + 1
+
+        customers = {
+            d.get("customerName") for d in devices if d.get("customerName")
+        }
+
         return {
             "ok": True,
-            "controller": self.base,
-            "omada_id":   self.omada_id,
-            "msp_mode":   bool(self._msp_mode),
-            "sites_total": len(sites),
-            "site_name":   self.site_name,
-            "site_found":  matched,
-            "ap_count":    len(aps),
+            "controller":       self.base,
+            "omada_id":         self.omada_id,
+            "msp_mode":         bool(self._msp_mode),
+            "sites_total":      len(sites),
+            "customers_total":  len(customers) if self._msp_mode else None,
+            "device_count":     len(devices),
+            "device_count_by_type": counts,
             "sample": [
                 {
-                    "mac":    a.get("mac"),
-                    "name":   a.get("name"),
-                    "model":  a.get("model"),
-                    "ip":     a.get("ip"),
-                    "status": a.get("status"),
-                    "site":   a.get("siteName"),
-                    "customer": a.get("customerName"),
+                    "mac":      d.get("mac"),
+                    "name":     d.get("name"),
+                    "model":    d.get("model"),
+                    "ip":       d.get("ip"),
+                    "type":     d.get("type"),
+                    "status":   d.get("status"),
+                    "site":     d.get("siteName"),
+                    "customer": d.get("customerName"),
                 }
-                for a in aps[:5]
+                for d in devices[:5]
             ],
         }
 
@@ -212,7 +230,6 @@ def _fingerprint(space) -> tuple:
         (space.omada_id or "").strip(),
         (space.omada_client_id or "").strip(),
         space.omada_client_secret or "",
-        (space.omada_site_name or "").strip(),
         bool(space.omada_verify_ssl),
     )
 
@@ -241,7 +258,6 @@ def get_client_for_space(space) -> OmadaClient | None:
             omada_id=space.omada_id,
             client_id=space.omada_client_id,
             client_secret=space.omada_client_secret,
-            site_name=space.omada_site_name or "",
             verify_ssl=bool(space.omada_verify_ssl),
         )
         client._fp = fp
