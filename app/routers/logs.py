@@ -3,6 +3,7 @@ import ipaddress
 import re
 import subprocess
 import zipfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -296,6 +297,48 @@ def download_source_zip(
         buf,
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{safe_ip}-logs.zip"'},
+    )
+
+
+@router.get("/{space_id}/sources/{ip}/download-range")
+def download_source_range(
+    space_id: int,
+    ip: str,
+    start: str = Query(..., description="YYYY-MM-DD, inclusif"),
+    end:   str = Query(..., description="YYYY-MM-DD, inclusif"),
+    db: Session = Depends(get_db),
+    _: str = Depends(get_current_user),
+):
+    space = _get_space_or_404(space_id, db)
+    _validate_ip(ip)
+
+    try:
+        d0 = datetime.strptime(start, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        d1 = datetime.strptime(end, "%Y-%m-%d").replace(
+            hour=23, minute=59, second=59, tzinfo=timezone.utc
+        )
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Format de date invalide (YYYY-MM-DD)")
+    if d0 > d1:
+        raise HTTPException(status_code=400, detail="La date de début doit être antérieure à la date de fin")
+
+    paths = log_scanner.files_in_date_range(
+        space.port, ip, d0.timestamp(), d1.timestamp()
+    )
+    if not paths:
+        raise HTTPException(status_code=404, detail="Aucun log dans la plage demandée")
+
+    def streamer():
+        for p in paths:
+            yield from log_scanner.stream_file_contents(p)
+            yield b"\n"
+
+    safe_ip = ip.replace(":", "-")
+    fname = f"{safe_ip}_{start}_to_{end}.log"
+    return StreamingResponse(
+        streamer(),
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
     )
 
 

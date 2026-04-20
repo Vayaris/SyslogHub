@@ -17,12 +17,25 @@
 </div>
 
 <div class="card">
-  <div class="card-header" style="justify-content:flex-end">
+  <div class="card-header">
+    <div style="display:flex;align-items:center;gap:10px;flex:1;flex-wrap:wrap">
+      <label class="text-sm" style="font-weight:500">Plage :</label>
+      <input type="date" id="range-start" class="input-sm">
+      <span class="text-muted">→</span>
+      <input type="date" id="range-end" class="input-sm">
+      <a id="btn-download-range" class="btn btn-primary btn-sm" href="#"
+         style="opacity:.5;pointer-events:none">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        Télécharger la période
+      </a>
+    </div>
     <a href="/api/logs/{{ space.id }}/sources/{{ ip }}/download-zip" class="btn btn-secondary btn-sm">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
       </svg>
-      Télécharger tout (ZIP)
+      Tout (ZIP)
     </a>
   </div>
   <table class="table" id="files-table">

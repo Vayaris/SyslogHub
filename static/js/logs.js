@@ -178,8 +178,11 @@ async function loadFiles() {
       tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted" style="padding:32px">
         Aucun fichier trouvé.
       </td></tr>`;
+      const rangeStart = document.getElementById('range-start');
+      if (rangeStart) rangeStart.closest('.card-header').querySelector('div').style.display = 'none';
       return;
     }
+    setupRangePicker(files);
     tbody.innerHTML = files.map(f => `
       <tr>
         <td style="font-family:var(--font-mono);font-size:13px">${escHtml(f.filename)}</td>
@@ -201,6 +204,37 @@ async function loadFiles() {
   } catch (err) {
     showToast(err.message, 'error');
   }
+}
+
+function setupRangePicker(files) {
+  const startEl = document.getElementById('range-start');
+  const endEl = document.getElementById('range-end');
+  const btn = document.getElementById('btn-download-range');
+  if (!startEl || !endEl || !btn) return;
+
+  const dates = files.map(f => f.last_modified.slice(0, 10)).sort();
+  const minD = dates[0], maxD = dates[dates.length - 1];
+  startEl.min = endEl.min = minD;
+  startEl.max = endEl.max = maxD;
+  if (!startEl.value) startEl.value = minD;
+  if (!endEl.value) endEl.value = maxD;
+
+  function refresh() {
+    const s = startEl.value, e = endEl.value;
+    const ok = s && e && s <= e;
+    if (ok) {
+      btn.href = `/api/logs/${SPACE_ID}/sources/${SOURCE_IP}/download-range?start=${s}&end=${e}`;
+      btn.style.opacity = '';
+      btn.style.pointerEvents = '';
+    } else {
+      btn.href = '#';
+      btn.style.opacity = '.5';
+      btn.style.pointerEvents = 'none';
+    }
+  }
+  startEl.addEventListener('input', refresh);
+  endEl.addEventListener('input', refresh);
+  refresh();
 }
 
 // ── AP MAC view (logs_space.html) ─────────────────────────────────────────────

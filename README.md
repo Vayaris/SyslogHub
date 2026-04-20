@@ -14,6 +14,7 @@ Serveur SYSLOG centralisé avec interface web HTTPS — simple à déployer, fac
 - Authentification par login/mot de passe (rotation de session à chaque changement de MDP)
 - **Intégration TP-Link Omada SDN par espace** (Northbound OpenAPI, supporte mode MSP multi-clients) : chaque espace peut pointer sur un contrôleur distinct pour enrichir les logs avec noms et modèles des équipements (bornes WiFi, switches, gateways)
 - **Mode LAN** (par espace) : consolide toutes les sources dans un fichier `_all.log` supplémentaire et une vue combinée, tout en gardant la séparation par IP
+- **Téléchargement par plage de dates** : sur une source, choisir un intervalle et récupérer un seul `.log` concaténant toutes les archives (`.log.N.gz` décompressés à la volée)
 
 ## Stack
 

@@ -316,3 +316,40 @@ def volume_by_day(days: int = 7) -> list[dict]:
                 pass
 
     return [{"date": d, "bytes": buckets[d]} for d in sorted(buckets)]
+
+
+def files_in_date_range(port: int, ip: str,
+                        start_ts: float, end_ts: float) -> list[Path]:
+    """
+    Return rotated + active log files for {ip} whose content overlaps
+    [start_ts, end_ts]. With daily rotation, a file's mtime marks the
+    last write before it was rotated, so its content sits within the
+    same day as its mtime. We accept a one-day buffer on each side to
+    cover mid-day rotations and slight boundary drift.
+    """
+    log_dir = Path(config.LOG_ROOT) / str(port)
+    if not log_dir.exists():
+        return []
+    lo = start_ts - 86400
+    hi = end_ts + 86400
+    entries = [
+        (f, f.stat().st_mtime)
+        for f in log_dir.iterdir()
+        if f.is_file() and not f.name.startswith(_RESERVED_PREFIX)
+        and (f.name == f"{ip}.log" or f.name.startswith(f"{ip}.log."))
+    ]
+    entries = [(f, m) for (f, m) in entries if lo <= m <= hi]
+    entries.sort(key=lambda t: t[1])
+    return [f for (f, _) in entries]
+
+
+def stream_file_contents(path: Path):
+    """Yield raw bytes from a log file, transparently decompressing .gz."""
+    if path.name.endswith(".gz"):
+        with gzip.open(path, "rb") as f:
+            while chunk := f.read(65536):
+                yield chunk
+    else:
+        with open(path, "rb") as f:
+            while chunk := f.read(65536):
+                yield chunk
