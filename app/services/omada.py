@@ -197,38 +197,67 @@ class OmadaClient:
         }
 
 
-# ── Module-level singleton ─────────────────────────────────────────────────────
+# ── Per-space client cache ─────────────────────────────────────────────────────
+# Each space can point at its own Omada controller. Clients are built lazily
+# from the space's DB row and cached until the space config changes.
 
-_client: OmadaClient | None = None
+_clients: dict[int, OmadaClient] = {}
+_cache_lock = Lock()
 
 
-def get_client() -> OmadaClient | None:
-    return _client
-
-
-def build_client(
-    base_url: str,
-    omada_id: str,
-    client_id: str,
-    client_secret: str,
-    site_name: str = "Default",
-    verify_ssl: bool = False,
-    # Legacy kwargs — ignored
-    admin_username: str = "",
-    admin_password: str = "",
-) -> OmadaClient:
-    global _client
-    _client = OmadaClient(
-        base_url=base_url,
-        omada_id=omada_id,
-        client_id=client_id,
-        client_secret=client_secret,
-        site_name=site_name,
-        verify_ssl=verify_ssl,
+def _fingerprint(space) -> tuple:
+    """Tuple used to detect whether a cached client is still in sync with the DB."""
+    return (
+        (space.omada_base_url or "").rstrip("/"),
+        (space.omada_id or "").strip(),
+        (space.omada_client_id or "").strip(),
+        space.omada_client_secret or "",
+        (space.omada_site_name or "").strip(),
+        bool(space.omada_verify_ssl),
     )
-    return _client
 
 
-def clear_client():
-    global _client
-    _client = None
+def is_configured(space) -> bool:
+    return bool(
+        space.omada_base_url
+        and space.omada_id
+        and space.omada_client_id
+        and space.omada_client_secret
+    )
+
+
+def get_client_for_space(space) -> OmadaClient | None:
+    """Build or return cached Omada client for a given Space row. None if unconfigured."""
+    if not is_configured(space):
+        _drop(space.id)
+        return None
+    fp = _fingerprint(space)
+    with _cache_lock:
+        cached = _clients.get(space.id)
+        if cached is not None and getattr(cached, "_fp", None) == fp:
+            return cached
+        client = OmadaClient(
+            base_url=space.omada_base_url,
+            omada_id=space.omada_id,
+            client_id=space.omada_client_id,
+            client_secret=space.omada_client_secret,
+            site_name=space.omada_site_name or "",
+            verify_ssl=bool(space.omada_verify_ssl),
+        )
+        client._fp = fp
+        _clients[space.id] = client
+        return client
+
+
+def clear_client_for_space(space_id: int):
+    _drop(space_id)
+
+
+def clear_all_clients():
+    with _cache_lock:
+        _clients.clear()
+
+
+def _drop(space_id: int):
+    with _cache_lock:
+        _clients.pop(space_id, None)

@@ -17,6 +17,13 @@ class SpaceOut(BaseModel):
     description: Optional[str]
     allowed_ip: Optional[str]
     tcp_enabled: bool
+    # Omada (read-only view; client_secret never returned)
+    omada_base_url:   Optional[str] = None
+    omada_id:         Optional[str] = None
+    omada_client_id:  Optional[str] = None
+    omada_site_name:  Optional[str] = None
+    omada_verify_ssl: bool = False
+    omada_configured: bool = False
     created_at: str
     updated_at: str
     stats: Optional[SpaceStats] = None
@@ -31,6 +38,13 @@ class SpaceCreate(BaseModel):
     description: Optional[str] = Field(None, max_length=255)
     allowed_ip: Optional[str] = Field(None, max_length=45)
     tcp_enabled: bool = False
+    # Omada (optional, all-or-nothing for the 4 required fields)
+    omada_base_url:      Optional[str] = None
+    omada_id:            Optional[str] = None
+    omada_client_id:     Optional[str] = None
+    omada_client_secret: Optional[str] = None
+    omada_site_name:     Optional[str] = None
+    omada_verify_ssl:    bool = False
 
     @field_validator("allowed_ip")
     @classmethod
@@ -50,6 +64,13 @@ class SpaceUpdate(BaseModel):
     enabled: Optional[bool] = None
     allowed_ip: Optional[str] = Field(None, max_length=45)
     tcp_enabled: Optional[bool] = None
+    # Omada (partial updates). Empty string on a text field means "clear".
+    omada_base_url:      Optional[str] = None
+    omada_id:            Optional[str] = None
+    omada_client_id:     Optional[str] = None
+    omada_client_secret: Optional[str] = None  # Empty/None = keep; value = overwrite
+    omada_site_name:     Optional[str] = None
+    omada_verify_ssl:    Optional[bool] = None
 
     @field_validator("allowed_ip")
     @classmethod
@@ -133,11 +154,3 @@ class SearchResponse(BaseModel):
     truncated: bool
 
 
-class OmadaSettings(BaseModel):
-    base_url:      Optional[str] = None   # Interface Access Address
-    omada_id:      Optional[str] = None   # Omada ID from controller info page
-    client_id:     Optional[str] = None   # OpenAPI Client ID
-    client_secret: Optional[str] = Field(None, description="Write-only — never returned")
-    site_name:     Optional[str] = "Default"
-    verify_ssl:    bool = False
-    configured:    bool = False

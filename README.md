@@ -12,7 +12,7 @@ Serveur SYSLOG centralisé avec interface web HTTPS — simple à déployer, fac
 - Configuration dynamique sans redémarrage manuel
 - Rétention et rotation automatiques + backup quotidien de la base
 - Authentification par login/mot de passe (rotation de session à chaque changement de MDP)
-- **Intégration TP-Link Omada SDN** (Northbound OpenAPI, supporte mode MSP multi-clients) : enrichissement automatique des logs avec noms et modèles des points d'accès
+- **Intégration TP-Link Omada SDN par espace** (Northbound OpenAPI, supporte mode MSP multi-clients) : chaque espace peut pointer sur un contrôleur distinct pour enrichir les logs avec noms et modèles des points d'accès
 
 ## Stack
 
@@ -80,9 +80,9 @@ sudo /opt/syslog-server/venv/bin/python /opt/syslog-server/scripts/reset_passwor
 
 ---
 
-## Intégration Omada SDN (optionnelle)
+## Intégration Omada SDN (optionnelle, par espace)
 
-SyslogHub peut interroger un contrôleur **TP-Link Omada SDN** via sa **Northbound OpenAPI** (mode standalone ou MSP multi-clients, détection automatique). Une fois configuré, les vues de logs enrichissent automatiquement les AP connus avec leur nom, leur modèle et leur statut.
+Chaque espace SyslogHub peut être relié à un contrôleur **TP-Link Omada SDN** distinct via sa **Northbound OpenAPI** (mode standalone ou MSP multi-clients, détection automatique). Une fois configuré, les vues de logs enrichissent automatiquement les AP connus avec leur nom, leur modèle et leur statut. Cela permet d'avoir, par exemple, un espace par site/client chacun relié à son propre contrôleur.
 
 ### Pré-requis contrôleur
 
@@ -93,7 +93,7 @@ Dans votre contrôleur Omada, aller dans **Paramètres → OpenAPI** et créer u
 
 ### Configuration dans SyslogHub
 
-Dans **Paramètres → Intégration Omada**, saisir les 4 champs ci-dessus, enregistrer, puis cliquer sur **Tester la connexion**. Un message de succès indique le nombre de sites et d'AP détectés.
+Dans **Espaces → Modifier** (ou **Nouvel espace**), remplir la section **Intégration Omada** avec les 4 champs ci-dessus, enregistrer, puis cliquer sur **Tester la connexion**. Un message de succès indique le nombre de sites et d'AP détectés. Répéter l'opération pour chaque espace à connecter à un contrôleur différent.
 
 ---
 

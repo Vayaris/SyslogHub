@@ -116,15 +116,21 @@ if (document.getElementById('space-form')) {
     const tcpEl = document.getElementById('tcp-enabled');
     const tcp_enabled = tcpEl ? tcpEl.checked : false;
 
+    const omada = collectOmadaFields();
+
     try {
       if (typeof MODE !== 'undefined' && MODE === 'edit') {
-        await api('PUT', `/spaces/${SPACE_ID}`, { name, description, allowed_ip, tcp_enabled });
+        await api('PUT', `/spaces/${SPACE_ID}`, {
+          name, description, allowed_ip, tcp_enabled, ...omada,
+        });
         showToast('Espace mis à jour', 'success');
         window.location = '/spaces';
       } else {
         const port = parseInt(document.getElementById('port').value, 10);
         if (!port || port < 1 || port > 65535) throw new Error('Port invalide (1-65535)');
-        await api('POST', '/spaces', { name, port, description, allowed_ip, tcp_enabled });
+        await api('POST', '/spaces', {
+          name, port, description, allowed_ip, tcp_enabled, ...omada,
+        });
         showToast('Espace créé', 'success');
         window.location = '/spaces';
       }
@@ -134,4 +140,42 @@ if (document.getElementById('space-form')) {
       btn.disabled = false;
     }
   });
+}
+
+// ── Omada fields on space edit form ───────────────────────────────────────────
+function collectOmadaFields() {
+  const baseUrl = document.getElementById('omada-base-url');
+  if (!baseUrl) return {};
+  const secret = document.getElementById('omada-client-secret').value;
+  const fields = {
+    omada_base_url:   baseUrl.value.trim() || null,
+    omada_id:         document.getElementById('omada-id').value.trim() || null,
+    omada_client_id:  document.getElementById('omada-client-id').value.trim() || null,
+    omada_site_name:  document.getElementById('omada-site').value.trim() || null,
+    omada_verify_ssl: document.getElementById('omada-verify-ssl').checked,
+  };
+  // Empty secret on edit = keep current; on create, send null (optional)
+  if (secret) fields.omada_client_secret = secret;
+  return fields;
+}
+
+async function testOmadaForSpace() {
+  if (typeof SPACE_ID === 'undefined' || SPACE_ID === null) return;
+  const resultEl = document.getElementById('omada-test-result');
+  resultEl.style.display = 'block';
+  resultEl.className = 'alert alert-info';
+  resultEl.textContent = 'Connexion en cours… (enregistrez d\'abord si vous venez de modifier les champs)';
+  try {
+    const res = await api('GET', `/spaces/${SPACE_ID}/omada/test`);
+    resultEl.className = 'alert alert-success';
+    const sample = (res.sample || []).map(a =>
+      `${a.name || '?'} (${a.mac})${a.model ? ' — ' + a.model : ''}`
+    ).join(', ');
+    resultEl.innerHTML =
+      `<strong>✓ Connexion réussie</strong> — ${res.ap_count} AP(s) sur le site "<em>${escHtml(res.site_name)}</em>"` +
+      (sample ? `<br><span style="font-size:12px">${escHtml(sample)}</span>` : '');
+  } catch (err) {
+    resultEl.className = 'alert alert-danger';
+    resultEl.textContent = err.message;
+  }
 }

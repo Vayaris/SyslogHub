@@ -17,7 +17,7 @@ from ..schemas import (
     FileInfo, LogViewResult, SearchResponse, SearchResult,
     SourceInfo, SourceListResponse,
 )
-from ..services.omada import get_client as get_omada_client
+from ..services import omada as omada_svc
 from ..services import log_scanner
 
 router = APIRouter(prefix="/api/logs", tags=["logs"])
@@ -181,7 +181,7 @@ def list_ap_macs(
     space = _get_space_or_404(space_id, db)
     macs = log_scanner.list_ap_macs(space.port)
 
-    omada = get_omada_client()
+    omada = omada_svc.get_client_for_space(space)
     result = []
     for mac in macs:
         info: dict = {"mac": mac, "name": None, "model": None, "status": None}

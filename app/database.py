@@ -19,6 +19,44 @@ def get_db():
         db.close()
 
 
+def _migrate_global_omada_to_space():
+    """Legacy `settings.omada_*` keys → first space's Omada columns, then purge."""
+    from .models import Space, Setting
+    db = SessionLocal()
+    try:
+        legacy_keys = [
+            "omada_base_url", "omada_id", "omada_client_id",
+            "omada_client_secret", "omada_site", "omada_verify_ssl",
+        ]
+        legacy = {
+            r.key: r.value
+            for r in db.query(Setting).filter(Setting.key.in_(legacy_keys)).all()
+        }
+        if not legacy.get("omada_base_url") or not legacy.get("omada_client_secret"):
+            # Nothing meaningful to migrate — just drop empty keys if present
+            if legacy:
+                db.query(Setting).filter(Setting.key.in_(legacy_keys)).delete(synchronize_session=False)
+                db.commit()
+            return
+
+        target = db.query(Space).order_by(Space.port).first()
+        if not target:
+            return
+
+        if not target.omada_base_url:
+            target.omada_base_url      = legacy.get("omada_base_url")
+            target.omada_id            = legacy.get("omada_id")
+            target.omada_client_id     = legacy.get("omada_client_id")
+            target.omada_client_secret = legacy.get("omada_client_secret")
+            target.omada_site_name     = legacy.get("omada_site") or None
+            target.omada_verify_ssl    = (legacy.get("omada_verify_ssl") or "false") == "true"
+
+        db.query(Setting).filter(Setting.key.in_(legacy_keys)).delete(synchronize_session=False)
+        db.commit()
+    finally:
+        db.close()
+
+
 def init_db():
     import bcrypt
     from .models import Space, Setting
@@ -29,6 +67,12 @@ def init_db():
     _migrations = [
         "ALTER TABLE spaces ADD COLUMN allowed_ip TEXT",
         "ALTER TABLE spaces ADD COLUMN tcp_enabled INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE spaces ADD COLUMN omada_base_url TEXT",
+        "ALTER TABLE spaces ADD COLUMN omada_id TEXT",
+        "ALTER TABLE spaces ADD COLUMN omada_client_id TEXT",
+        "ALTER TABLE spaces ADD COLUMN omada_client_secret TEXT",
+        "ALTER TABLE spaces ADD COLUMN omada_site_name TEXT",
+        "ALTER TABLE spaces ADD COLUMN omada_verify_ssl INTEGER NOT NULL DEFAULT 0",
     ]
     with engine.connect() as conn:
         for stmt in _migrations:
@@ -37,6 +81,9 @@ def init_db():
                 conn.commit()
             except Exception:
                 pass  # Column already exists
+
+    # One-time migration: move legacy global Omada config onto the first space
+    _migrate_global_omada_to_space()
 
     db = SessionLocal()
     try:

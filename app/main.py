@@ -10,7 +10,6 @@ from .database import get_db, init_db
 from .auth import validate_session, create_session
 from .routers import auth, spaces, logs, settings
 from .utils import service_active
-from .services import omada as omada_svc
 from . import config
 
 BASE = Path("/opt/syslog-server")
@@ -56,7 +55,7 @@ async def rolling_session(request: Request, call_next):
 def health():
     return JSONResponse({
         "status": "ok",
-        "version": "1.1.0",
+        "version": "1.4.0",
         "services": {
             "rsyslog": service_active("rsyslog"),
             "nginx": service_active("nginx"),
@@ -224,28 +223,5 @@ def startup():
                 logging.getLogger("syslog-server").warning(
                     f"rsyslog config apply at startup: {e}"
                 )
-
-        # Restore Omada client if configured
-        def _s(key):
-            row = db.query(Setting).filter(Setting.key == key).first()
-            return row.value if row else None
-
-        omada_base = _s("omada_base_url")
-        omada_id   = _s("omada_id")
-        omada_cid  = _s("omada_client_id")
-        omada_csec = _s("omada_client_secret")
-        if omada_base and omada_id and omada_cid and omada_csec:
-            try:
-                omada_svc.build_client(
-                    base_url=omada_base,
-                    omada_id=omada_id,
-                    client_id=omada_cid,
-                    client_secret=omada_csec,
-                    site_name=_s("omada_site") or "Default",
-                    verify_ssl=(_s("omada_verify_ssl") or "false") == "true",
-                )
-            except Exception as e:
-                import logging
-                logging.getLogger("syslog-server").warning(f"Omada client init: {e}")
     finally:
         db.close()

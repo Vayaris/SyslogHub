@@ -75,6 +75,71 @@
   </form>
 </div>
 
+<div class="card" style="max-width:600px;margin-top:24px">
+  <div class="card-header">
+    <h3>Intégration Omada</h3>
+    {% if mode == 'edit' %}
+      <span class="badge {{ 'badge-success' if space.omada_configured else 'badge-warning' }}" id="omada-status-badge">
+        {{ 'Configuré' if space.omada_configured else 'Non configuré' }}
+      </span>
+    {% else %}
+      <span class="badge badge-warning" id="omada-status-badge">Non configuré</span>
+    {% endif %}
+  </div>
+  <div style="padding:0 24px 24px">
+    <p class="text-muted" style="padding-top:16px;margin-bottom:16px">
+      Connectez cet espace à un contrôleur TP-Link Omada SDN pour enrichir
+      les logs avec les noms et infos des points d'accès. Chaque espace peut
+      pointer sur un contrôleur différent. Créez une application
+      <em>Client Credentials</em> dans <em>Paramètres → OpenAPI</em> du contrôleur.
+    </p>
+    <div class="form-group">
+      <label for="omada-base-url">Interface Access Address</label>
+      <input type="text" id="omada-base-url" placeholder="https://172.16.0.31:8043"
+             value="{{ space.omada_base_url if space and space.omada_base_url else '' }}">
+      <p class="help-text">URL de votre contrôleur Omada (champ "Interface Access Address").</p>
+    </div>
+    <div class="form-group">
+      <label for="omada-id">Omada ID</label>
+      <input type="text" id="omada-id" placeholder="e98cf5fb292125560958c7208e3b33b7"
+             style="font-family:var(--font-mono);font-size:13px"
+             value="{{ space.omada_id if space and space.omada_id else '' }}">
+      <p class="help-text">Identifiant unique du contrôleur (visible sur la page de connexion).</p>
+    </div>
+    <div class="form-group">
+      <label for="omada-client-id">Client ID</label>
+      <input type="text" id="omada-client-id" placeholder="Généré dans Paramètres → OpenAPI"
+             style="font-family:var(--font-mono);font-size:13px"
+             value="{{ space.omada_client_id if space and space.omada_client_id else '' }}">
+    </div>
+    <div class="form-group">
+      <label for="omada-client-secret">Client Secret</label>
+      <input type="password" id="omada-client-secret" placeholder="••••••••">
+      <p class="help-text">Laissez vide pour conserver le secret actuel. Obligatoire lors de la première configuration.</p>
+    </div>
+    <div class="form-group">
+      <label for="omada-site">Nom du site</label>
+      <input type="text" id="omada-site" placeholder="Default"
+             value="{{ space.omada_site_name if space and space.omada_site_name else '' }}">
+      <p class="help-text">Nom exact du site Omada (sensible à la casse). Laissez vide pour utiliser le premier site disponible.</p>
+    </div>
+    <div class="form-group">
+      <label class="checkbox-label">
+        <input type="checkbox" id="omada-verify-ssl"
+               {% if space and space.omada_verify_ssl %}checked{% endif %}>
+        Vérifier le certificat SSL
+      </label>
+      <p class="help-text">Décochez si le contrôleur utilise un certificat auto-signé (cas habituel en local).</p>
+    </div>
+    <div id="omada-test-result" style="margin-bottom:12px;display:none"></div>
+    {% if mode == 'edit' %}
+      <button type="button" class="btn btn-secondary" onclick="testOmadaForSpace()">Tester la connexion</button>
+    {% else %}
+      <p class="help-text">Créez d'abord l'espace, vous pourrez ensuite tester la connexion.</p>
+    {% endif %}
+  </div>
+</div>
+
 <script>
   const MODE = '{{ mode }}';
   const SPACE_ID = {{ space.id if space else 'null' }};

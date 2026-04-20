@@ -17,6 +17,15 @@ class Space(Base):
     description = Column(Text, nullable=True)
     allowed_ip = Column(String(45), nullable=True)
     tcp_enabled = Column(Boolean, nullable=False, default=False)
+
+    # Per-space Omada SDN integration (optional)
+    omada_base_url      = Column(Text, nullable=True)
+    omada_id            = Column(Text, nullable=True)
+    omada_client_id     = Column(Text, nullable=True)
+    omada_client_secret = Column(Text, nullable=True)
+    omada_site_name     = Column(Text, nullable=True)
+    omada_verify_ssl    = Column(Boolean, nullable=False, default=False)
+
     created_at = Column(String(32), nullable=False, default=_now)
     updated_at = Column(String(32), nullable=False, default=_now, onupdate=_now)
 

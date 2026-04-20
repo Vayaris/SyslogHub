@@ -8,6 +8,7 @@ from ..models import Space
 from ..schemas import SpaceCreate, SpaceOut, SpaceStats, SpaceUpdate
 from ..services import rsyslog as rsyslog_svc
 from ..services import log_scanner
+from ..services import omada as omada_svc
 
 router = APIRouter(prefix="/api/spaces", tags=["spaces"])
 
@@ -28,10 +29,60 @@ def _space_out(space: Space, with_stats: bool = True) -> SpaceOut:
         description=space.description,
         allowed_ip=getattr(space, "allowed_ip", None),
         tcp_enabled=bool(getattr(space, "tcp_enabled", False)),
+        omada_base_url=space.omada_base_url or None,
+        omada_id=space.omada_id or None,
+        omada_client_id=space.omada_client_id or None,
+        omada_site_name=space.omada_site_name or None,
+        omada_verify_ssl=bool(space.omada_verify_ssl),
+        omada_configured=omada_svc.is_configured(space),
         created_at=space.created_at,
         updated_at=space.updated_at,
         stats=stats,
     )
+
+
+def _apply_omada_fields(space: Space, body, is_create: bool):
+    """Copy Omada fields from a SpaceCreate/SpaceUpdate body onto a Space row.
+
+    Create: all provided fields are written verbatim (client_secret required for config to be effective).
+    Update: fields explicitly set in the payload are written; an empty client_secret means 'keep current'.
+    Returns True if any Omada-related field changed (so the cached client can be dropped)."""
+    changed = False
+    fields_set = body.model_fields_set
+
+    # Text fields — treat empty string as "clear"
+    text_map = {
+        "omada_base_url":   "omada_base_url",
+        "omada_id":         "omada_id",
+        "omada_client_id":  "omada_client_id",
+        "omada_site_name":  "omada_site_name",
+    }
+    for body_field, col in text_map.items():
+        if is_create or body_field in fields_set:
+            new_val = getattr(body, body_field)
+            new_val = (new_val or "").strip() or None
+            if getattr(space, col) != new_val:
+                setattr(space, col, new_val)
+                changed = True
+
+    # Secret — only overwrite when a non-empty value is provided
+    if is_create or "omada_client_secret" in fields_set:
+        sec = body.omada_client_secret
+        if sec:  # non-empty → overwrite
+            if space.omada_client_secret != sec:
+                space.omada_client_secret = sec
+                changed = True
+        elif is_create:
+            space.omada_client_secret = None
+
+    # Boolean verify_ssl
+    if is_create or "omada_verify_ssl" in fields_set:
+        new_bool = bool(body.omada_verify_ssl) if body.omada_verify_ssl is not None else False
+        if bool(space.omada_verify_ssl) != new_bool:
+            space.omada_verify_ssl = new_bool
+            changed = True
+
+    return changed
 
 
 @router.get("", response_model=list[SpaceOut])
@@ -64,6 +115,7 @@ def create_space(
         created_at=now,
         updated_at=now,
     )
+    _apply_omada_fields(space, body, is_create=True)
     db.add(space)
     db.commit()
     db.refresh(space)
@@ -71,7 +123,6 @@ def create_space(
     all_spaces = db.query(Space).all()
     ok, msg = rsyslog_svc.apply_rsyslog_config(all_spaces)
     if not ok:
-        # Rollback: rsyslog couldn't open the port
         db.delete(space)
         db.commit()
         raise HTTPException(
@@ -121,9 +172,14 @@ def update_space(
         space.tcp_enabled = body.tcp_enabled
         reload_needed = True
 
+    omada_changed = _apply_omada_fields(space, body, is_create=False)
+
     space.updated_at = datetime.now(timezone.utc).isoformat()
     db.commit()
     db.refresh(space)
+
+    if omada_changed:
+        omada_svc.clear_client_for_space(space.id)
 
     if reload_needed:
         all_spaces = db.query(Space).all()
@@ -146,6 +202,7 @@ def delete_space(
     port = space.port
     db.delete(space)
     db.commit()
+    omada_svc.clear_client_for_space(space_id)
 
     logs_deleted = False
     if delete_logs:
@@ -161,3 +218,21 @@ def delete_space(
     rsyslog_svc.apply_rsyslog_config(all_spaces)
 
     return {"ok": True, "logs_deleted": logs_deleted}
+
+
+@router.get("/{space_id}/omada/test")
+def test_space_omada(
+    space_id: int,
+    db: Session = Depends(get_db),
+    _: str = Depends(get_current_user),
+):
+    space = db.query(Space).filter(Space.id == space_id).first()
+    if not space:
+        raise HTTPException(status_code=404, detail="Espace introuvable")
+    client = omada_svc.get_client_for_space(space)
+    if not client:
+        raise HTTPException(status_code=400, detail="Intégration Omada non configurée pour cet espace")
+    try:
+        return client.test_connection()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Connexion Omada échouée : {e}")

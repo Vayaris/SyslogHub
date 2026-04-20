@@ -8,9 +8,8 @@ from sqlalchemy.orm import Session
 from ..auth import get_current_user, hash_password, verify_password
 from ..database import get_db
 from ..models import Setting, Space
-from ..schemas import SettingsOut, SettingsUpdate, SystemStatus, OmadaSettings
+from ..schemas import SettingsOut, SettingsUpdate, SystemStatus
 from ..services.log_scanner import total_log_size, volume_by_day
-from ..services import omada as omada_svc
 from ..utils import service_active
 from .. import config
 
@@ -101,68 +100,3 @@ def log_volume(
     _: str = Depends(get_current_user),
 ):
     return volume_by_day(days)
-
-
-# ── Omada integration ──────────────────────────────────────────────────────────
-
-@router.get("/omada", response_model=OmadaSettings)
-def get_omada_settings(
-    db: Session = Depends(get_db),
-    _: str = Depends(get_current_user),
-):
-    base_url  = _get_setting(db, "omada_base_url") or ""
-    client_id = _get_setting(db, "omada_client_id") or ""
-    return OmadaSettings(
-        base_url=base_url,
-        omada_id=_get_setting(db, "omada_id") or "",
-        client_id=client_id,
-        # client_secret jamais retourné
-        site_name=_get_setting(db, "omada_site") or "Default",
-        verify_ssl=(_get_setting(db, "omada_verify_ssl") or "false") == "true",
-        configured=bool(base_url and client_id),
-    )
-
-
-@router.put("/omada")
-def update_omada_settings(
-    body: OmadaSettings,
-    db: Session = Depends(get_db),
-    _: str = Depends(get_current_user),
-):
-    _set_setting(db, "omada_base_url", body.base_url or "")
-    _set_setting(db, "omada_id", body.omada_id or "")
-    if body.client_id:
-        _set_setting(db, "omada_client_id", body.client_id)
-    if body.client_secret:
-        _set_setting(db, "omada_client_secret", body.client_secret)
-    _set_setting(db, "omada_site", body.site_name or "Default")
-    _set_setting(db, "omada_verify_ssl", "true" if body.verify_ssl else "false")
-
-    cid  = body.client_id     or _get_setting(db, "omada_client_id")     or ""
-    csec = body.client_secret or _get_setting(db, "omada_client_secret") or ""
-    if body.base_url and body.omada_id and cid and csec:
-        omada_svc.build_client(
-            base_url=body.base_url,
-            omada_id=body.omada_id,
-            client_id=cid,
-            client_secret=csec,
-            site_name=body.site_name or "Default",
-            verify_ssl=body.verify_ssl,
-        )
-    else:
-        omada_svc.clear_client()
-
-    return {"ok": True}
-
-
-@router.get("/omada/test")
-def test_omada_connection(
-    _: str = Depends(get_current_user),
-):
-    client = omada_svc.get_client()
-    if not client:
-        raise HTTPException(status_code=400, detail="Intégration Omada non configurée")
-    try:
-        return client.test_connection()
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Connexion Omada échouée : {e}")
