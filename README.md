@@ -15,6 +15,7 @@ Serveur SYSLOG centralisé avec interface web HTTPS — simple à déployer, fac
 - **Intégration TP-Link Omada SDN par espace** (Northbound OpenAPI, supporte mode MSP multi-clients) : chaque espace peut pointer sur un contrôleur distinct pour enrichir les logs avec noms et modèles des équipements (bornes WiFi, switches, gateways)
 - **Mode LAN** (par espace) : consolide toutes les sources dans un fichier `_all.log` supplémentaire et une vue combinée, tout en gardant la séparation par IP
 - **Téléchargement par plage de dates** : sur une source, choisir un intervalle et récupérer un seul `.log` concaténant toutes les archives (`.log.N.gz` décompressés à la volée)
+- **Alertes "no-logs"** : notification email (SMTP Gmail / App Password) + webhook si un espace ne reçoit plus de logs depuis *X* heures (défaut 24h). Une alerte au passage DOWN, une alerte de retour (RECOVERY). Seuil, destinataire et webhook configurables par espace.
 
 ## Stack
 
@@ -96,6 +97,32 @@ Dans votre contrôleur Omada, aller dans **Paramètres → OpenAPI** et créer u
 ### Configuration dans SyslogHub
 
 Dans **Espaces → Modifier** (ou **Nouvel espace**), remplir la section **Intégration Omada** avec les 4 champs ci-dessus, enregistrer, puis cliquer sur **Tester la connexion**. Le message de succès indique le mode détecté (MSP ou standard), le nombre de sites/clients et la répartition des équipements par type. Répéter l'opération pour chaque espace à connecter à un contrôleur différent.
+
+---
+
+## Alertes "no-logs"
+
+SyslogHub peut envoyer une notification si un espace arrête de recevoir des logs pendant un délai configurable (défaut 24h). Un timer systemd (`syslog-alerts.timer`) vérifie tous les 10 min la fraîcheur du dernier log reçu sur chaque espace surveillé, et déclenche :
+- **1 alerte DOWN** quand l'espace dépasse le seuil,
+- **1 alerte RECOVERY** quand les logs reprennent.
+
+### Configuration SMTP (globale)
+
+Dans **Paramètres → Alertes** :
+- Cocher *Activer le système d'alertes*
+- Serveur SMTP : `smtp.gmail.com` — Port : `587`
+- Utilisateur / From : adresse Gmail
+- Mot de passe : **App Password** Gmail (16 caractères, 2FA requis sur le compte). Voir [https://myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)
+- Destinataire par défaut : adresse qui reçoit les alertes si l'espace n'a pas de destinataire propre
+- Bouton *Tester* pour vérifier la config
+
+### Par espace
+
+Dans **Espaces → Modifier**, bloc *Alertes "no-logs"* :
+- *Surveiller cet espace* → active/désactive
+- *Seuil (heures)* → défaut 24, max 720
+- *Email destinataire* → optionnel, override du destinataire global
+- *URL Webhook* → optionnel, POST JSON avec `{event, space, port, threshold_hours, last_log_at}`
 
 ---
 

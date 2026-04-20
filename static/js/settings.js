@@ -1,5 +1,6 @@
 document.addEventListener('DOMContentLoaded', async () => {
   await loadSettings();
+  await loadAlertsConfig();
   await loadStatus();
 });
 
@@ -47,6 +48,59 @@ async function loadStatus() {
   } catch (err) {
     document.getElementById('status-content').innerHTML =
       `<div class="alert alert-danger" style="margin:16px">${err.message}</div>`;
+  }
+}
+
+async function loadAlertsConfig() {
+  try {
+    const cfg = await api('GET', '/settings/alerts');
+    document.getElementById('alerts-enabled').checked = !!cfg.enabled;
+    document.getElementById('smtp-host').value = cfg.smtp_host || '';
+    document.getElementById('smtp-port').value = cfg.smtp_port || '';
+    document.getElementById('smtp-username').value = cfg.smtp_username || '';
+    document.getElementById('smtp-from').value = cfg.smtp_from_email || '';
+    document.getElementById('smtp-default-to').value = cfg.smtp_default_to || '';
+    const pwdEl = document.getElementById('smtp-password');
+    pwdEl.placeholder = cfg.smtp_password_set ? '•••••••• (configuré)' : '••••••••';
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+document.getElementById('alerts-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const body = {
+    enabled: document.getElementById('alerts-enabled').checked,
+    smtp_host: document.getElementById('smtp-host').value.trim(),
+    smtp_username: document.getElementById('smtp-username').value.trim(),
+    smtp_from_email: document.getElementById('smtp-from').value.trim(),
+    smtp_default_to: document.getElementById('smtp-default-to').value.trim(),
+  };
+  const portVal = document.getElementById('smtp-port').value.trim();
+  if (portVal) body.smtp_port = parseInt(portVal, 10);
+  const pwd = document.getElementById('smtp-password').value;
+  if (pwd) body.smtp_password = pwd;
+  try {
+    await api('PUT', '/settings/alerts', body);
+    document.getElementById('smtp-password').value = '';
+    showToast('Configuration alertes enregistrée', 'success');
+    await loadAlertsConfig();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+});
+
+async function testAlerts() {
+  const to = document.getElementById('smtp-default-to').value.trim();
+  if (!to) {
+    showToast('Renseignez un destinataire par défaut avant de tester', 'error');
+    return;
+  }
+  try {
+    await api('POST', '/settings/alerts/test', { to_email: to });
+    showToast(`Email de test envoyé à ${to}`, 'success');
+  } catch (err) {
+    showToast(err.message, 'error');
   }
 }
 

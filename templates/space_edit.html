@@ -153,6 +153,54 @@
   </div>
 </div>
 
+<div class="card" style="max-width:600px;margin-top:24px">
+  <div class="card-header">
+    <h3>Alertes "no-logs"</h3>
+    {% if mode == 'edit' %}
+      <span class="badge {{ 'badge-success' if space.alerts_enabled else 'badge-warning' }}">
+        {{ 'Surveillé' if space.alerts_enabled else 'Désactivé' }}
+      </span>
+    {% else %}
+      <span class="badge badge-warning">Désactivé</span>
+    {% endif %}
+  </div>
+  <div style="padding:0 24px 24px">
+    <p class="text-muted" style="padding-top:16px;margin-bottom:16px">
+      Envoie une notification (email + webhook) si cet espace ne reçoit plus de logs
+      pendant le délai défini. Nécessite la configuration SMTP globale dans
+      <a href="/settings">Paramètres → Alertes</a>. Alerte envoyée une fois au
+      passage DOWN, une fois au retour des logs (recovery).
+    </p>
+    <div class="form-group">
+      <label class="checkbox-label">
+        <input type="checkbox" id="alerts-enabled"
+               {% if space and space.alerts_enabled %}checked{% endif %}>
+        Surveiller cet espace
+      </label>
+    </div>
+    <div class="form-group">
+      <label for="alert-threshold">Seuil (heures sans log)</label>
+      <input type="number" id="alert-threshold" min="1" max="720"
+             value="{{ space.alert_threshold_hours if space and space.alert_threshold_hours else 24 }}">
+      <p class="help-text">Défaut 24h. Max 720h (30 jours).</p>
+    </div>
+    <div class="form-group">
+      <label for="alert-email">Email destinataire (optionnel)</label>
+      <input type="text" id="alert-email"
+             placeholder="Override du destinataire global"
+             value="{{ space.alert_email_to if space and space.alert_email_to else '' }}">
+      <p class="help-text">Laissez vide pour utiliser le destinataire configuré dans Paramètres.</p>
+    </div>
+    <div class="form-group">
+      <label for="alert-webhook">URL Webhook (optionnel)</label>
+      <input type="text" id="alert-webhook"
+             placeholder="https://..."
+             value="{{ space.alert_webhook_url if space and space.alert_webhook_url else '' }}">
+      <p class="help-text">POST JSON avec le payload de l'événement (event, space, port, threshold_hours, last_log_at).</p>
+    </div>
+  </div>
+</div>
+
 <script>
   const MODE = '{{ mode }}';
   const SPACE_ID = {{ space.id if space else 'null' }};

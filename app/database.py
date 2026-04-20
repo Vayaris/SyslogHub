@@ -74,6 +74,12 @@ def init_db():
         "ALTER TABLE spaces ADD COLUMN omada_site_name TEXT",
         "ALTER TABLE spaces ADD COLUMN omada_verify_ssl INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE spaces ADD COLUMN lan_mode INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE spaces ADD COLUMN alerts_enabled INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE spaces ADD COLUMN alert_threshold_hours INTEGER NOT NULL DEFAULT 24",
+        "ALTER TABLE spaces ADD COLUMN alert_email_to TEXT",
+        "ALTER TABLE spaces ADD COLUMN alert_webhook_url TEXT",
+        "ALTER TABLE spaces ADD COLUMN alert_state TEXT NOT NULL DEFAULT 'ok'",
+        "ALTER TABLE spaces ADD COLUMN alert_last_transition_at TEXT",
     ]
     with engine.connect() as conn:
         for stmt in _migrations:

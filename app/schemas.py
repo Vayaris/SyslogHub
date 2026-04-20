@@ -24,6 +24,13 @@ class SpaceOut(BaseModel):
     omada_client_id:  Optional[str] = None
     omada_verify_ssl: bool = False
     omada_configured: bool = False
+    # Alerts (v1.7.0)
+    alerts_enabled:        bool = False
+    alert_threshold_hours: int = 24
+    alert_email_to:        Optional[str] = None
+    alert_webhook_url:     Optional[str] = None
+    alert_state:           str = "ok"
+    alert_last_transition_at: Optional[str] = None
     created_at: str
     updated_at: str
     stats: Optional[SpaceStats] = None
@@ -45,6 +52,11 @@ class SpaceCreate(BaseModel):
     omada_client_id:     Optional[str] = None
     omada_client_secret: Optional[str] = None
     omada_verify_ssl:    bool = False
+    # Alerts (v1.7.0)
+    alerts_enabled:        Optional[bool] = None
+    alert_threshold_hours: Optional[int] = Field(None, ge=1, le=720)
+    alert_email_to:        Optional[str] = None
+    alert_webhook_url:     Optional[str] = None
 
     @field_validator("allowed_ip")
     @classmethod
@@ -71,6 +83,11 @@ class SpaceUpdate(BaseModel):
     omada_client_id:     Optional[str] = None
     omada_client_secret: Optional[str] = None  # Empty/None = keep; value = overwrite
     omada_verify_ssl:    Optional[bool] = None
+    # Alerts (v1.7.0). Empty string on text fields = clear.
+    alerts_enabled:        Optional[bool] = None
+    alert_threshold_hours: Optional[int] = Field(None, ge=1, le=720)
+    alert_email_to:        Optional[str] = None
+    alert_webhook_url:     Optional[str] = None
 
     @field_validator("allowed_ip")
     @classmethod
@@ -99,6 +116,30 @@ class SettingsUpdate(BaseModel):
     admin_username: Optional[str] = Field(None, min_length=1, max_length=64)
     current_password: Optional[str] = None
     new_password: Optional[str] = Field(None, min_length=6)
+
+
+class AlertsConfigOut(BaseModel):
+    enabled: bool
+    smtp_host: Optional[str] = None
+    smtp_port: Optional[int] = None
+    smtp_username: Optional[str] = None
+    smtp_from_email: Optional[str] = None
+    smtp_default_to: Optional[str] = None
+    smtp_password_set: bool = False
+
+
+class AlertsConfigUpdate(BaseModel):
+    enabled: Optional[bool] = None
+    smtp_host: Optional[str] = None
+    smtp_port: Optional[int] = Field(None, ge=1, le=65535)
+    smtp_username: Optional[str] = None
+    smtp_password: Optional[str] = None  # empty/None = keep; value = overwrite
+    smtp_from_email: Optional[str] = None
+    smtp_default_to: Optional[str] = None
+
+
+class AlertTestRequest(BaseModel):
+    to_email: str = Field(..., min_length=3, max_length=254)
 
 
 class SystemStatus(BaseModel):

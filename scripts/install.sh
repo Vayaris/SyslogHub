@@ -364,10 +364,37 @@ Persistent=true
 WantedBy=timers.target
 RET_TIMER
 
+# Timer alertes no-log
+cat > /etc/systemd/system/syslog-alerts.service << 'ALERT_SVC'
+[Unit]
+Description=Syslog alerts check (no-log threshold)
+
+[Service]
+Type=oneshot
+ExecStart=/opt/syslog-server/venv/bin/python3 /opt/syslog-server/scripts/alert_check.py
+User=root
+StandardOutput=journal
+SyslogIdentifier=syslog-alerts
+ALERT_SVC
+
+cat > /etc/systemd/system/syslog-alerts.timer << 'ALERT_TIMER'
+[Unit]
+Description=Syslog alerts check timer
+
+[Timer]
+OnCalendar=*:0/10
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+ALERT_TIMER
+
 systemctl daemon-reload
 systemctl enable syslog-server --quiet
 systemctl enable syslog-retention.timer --quiet
+systemctl enable syslog-alerts.timer --quiet
 systemctl start syslog-server
+systemctl start syslog-alerts.timer
 success "Service systemd démarré"
 
 # ── ÉTAPE 13 : Permissions finales ────────────────────────────────────────────

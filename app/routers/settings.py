@@ -8,7 +8,11 @@ from sqlalchemy.orm import Session
 from ..auth import get_current_user, hash_password, verify_password
 from ..database import get_db
 from ..models import Setting, Space
-from ..schemas import SettingsOut, SettingsUpdate, SystemStatus
+from ..schemas import (
+    AlertsConfigOut, AlertsConfigUpdate, AlertTestRequest,
+    SettingsOut, SettingsUpdate, SystemStatus,
+)
+from ..services import alerts as alerts_svc
 from ..services.log_scanner import total_log_size, volume_by_day
 from ..utils import service_active
 from .. import config
@@ -100,3 +104,62 @@ def log_volume(
     _: str = Depends(get_current_user),
 ):
     return volume_by_day(days)
+
+
+# ── Alerts (no-log) ───────────────────────────────────────────────────────────
+
+@router.get("/alerts", response_model=AlertsConfigOut)
+def get_alerts_config(
+    db: Session = Depends(get_db),
+    _: str = Depends(get_current_user),
+):
+    port = _get_setting(db, "smtp_port")
+    return AlertsConfigOut(
+        enabled=(_get_setting(db, "alerts_global_enabled") or "false") == "true",
+        smtp_host=_get_setting(db, "smtp_host") or None,
+        smtp_port=int(port) if port else None,
+        smtp_username=_get_setting(db, "smtp_username") or None,
+        smtp_from_email=_get_setting(db, "smtp_from_email") or None,
+        smtp_default_to=_get_setting(db, "smtp_default_to") or None,
+        smtp_password_set=bool(_get_setting(db, "smtp_password")),
+    )
+
+
+@router.put("/alerts")
+def update_alerts_config(
+    body: AlertsConfigUpdate,
+    db: Session = Depends(get_db),
+    _: str = Depends(get_current_user),
+):
+    fields = body.model_fields_set
+    if "enabled" in fields:
+        _set_setting(db, "alerts_global_enabled", "true" if body.enabled else "false")
+    text_map = {
+        "smtp_host": "smtp_host",
+        "smtp_username": "smtp_username",
+        "smtp_from_email": "smtp_from_email",
+        "smtp_default_to": "smtp_default_to",
+    }
+    for bf, key in text_map.items():
+        if bf in fields:
+            _set_setting(db, key, (getattr(body, bf) or "").strip())
+    if "smtp_port" in fields and body.smtp_port is not None:
+        _set_setting(db, "smtp_port", str(body.smtp_port))
+    # Password: empty/None = keep; value = overwrite
+    if "smtp_password" in fields and body.smtp_password:
+        _set_setting(db, "smtp_password", body.smtp_password)
+    return {"ok": True}
+
+
+@router.post("/alerts/test")
+def test_alerts_config(
+    body: AlertTestRequest,
+    db: Session = Depends(get_db),
+    _: str = Depends(get_current_user),
+):
+    smtp = alerts_svc.get_settings(db)
+    try:
+        alerts_svc.send_test_email(smtp, body.to_email)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Échec de l'envoi : {e}")
+    return {"ok": True}

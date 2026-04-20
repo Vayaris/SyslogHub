@@ -27,6 +27,14 @@ class Space(Base):
     omada_site_name     = Column(Text, nullable=True)
     omada_verify_ssl    = Column(Boolean, nullable=False, default=False)
 
+    # Per-space no-log alerts (v1.7.0)
+    alerts_enabled           = Column(Boolean, nullable=False, default=False)
+    alert_threshold_hours    = Column(Integer, nullable=False, default=24)
+    alert_email_to           = Column(Text, nullable=True)
+    alert_webhook_url        = Column(Text, nullable=True)
+    alert_state              = Column(String(8), nullable=False, default="ok")
+    alert_last_transition_at = Column(String(32), nullable=True)
+
     created_at = Column(String(32), nullable=False, default=_now)
     updated_at = Column(String(32), nullable=False, default=_now, onupdate=_now)
 

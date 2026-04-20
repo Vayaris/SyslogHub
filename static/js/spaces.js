@@ -120,11 +120,12 @@ if (document.getElementById('space-form')) {
     const lan_mode = lanEl ? lanEl.checked : false;
 
     const omada = collectOmadaFields();
+    const alerts = collectAlertFields();
 
     try {
       if (typeof MODE !== 'undefined' && MODE === 'edit') {
         await api('PUT', `/spaces/${SPACE_ID}`, {
-          name, description, allowed_ip, tcp_enabled, lan_mode, ...omada,
+          name, description, allowed_ip, tcp_enabled, lan_mode, ...omada, ...alerts,
         });
         showToast('Espace mis à jour', 'success');
         window.location = '/spaces';
@@ -132,7 +133,7 @@ if (document.getElementById('space-form')) {
         const port = parseInt(document.getElementById('port').value, 10);
         if (!port || port < 1 || port > 65535) throw new Error('Port invalide (1-65535)');
         await api('POST', '/spaces', {
-          name, port, description, allowed_ip, tcp_enabled, lan_mode, ...omada,
+          name, port, description, allowed_ip, tcp_enabled, lan_mode, ...omada, ...alerts,
         });
         showToast('Espace créé', 'success');
         window.location = '/spaces';
@@ -143,6 +144,19 @@ if (document.getElementById('space-form')) {
       btn.disabled = false;
     }
   });
+}
+
+// ── Alert fields on space edit form ──────────────────────────────────────────
+function collectAlertFields() {
+  const enabledEl = document.getElementById('alerts-enabled');
+  if (!enabledEl) return {};
+  const threshold = parseInt(document.getElementById('alert-threshold').value, 10);
+  return {
+    alerts_enabled: enabledEl.checked,
+    alert_threshold_hours: (threshold && threshold > 0) ? threshold : 24,
+    alert_email_to: document.getElementById('alert-email').value.trim() || null,
+    alert_webhook_url: document.getElementById('alert-webhook').value.trim() || null,
+  };
 }
 
 // ── Omada fields on space edit form ───────────────────────────────────────────

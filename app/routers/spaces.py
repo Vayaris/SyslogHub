@@ -35,10 +35,33 @@ def _space_out(space: Space, with_stats: bool = True) -> SpaceOut:
         omada_client_id=space.omada_client_id or None,
         omada_verify_ssl=bool(space.omada_verify_ssl),
         omada_configured=omada_svc.is_configured(space),
+        alerts_enabled=bool(getattr(space, "alerts_enabled", False)),
+        alert_threshold_hours=int(getattr(space, "alert_threshold_hours", 24) or 24),
+        alert_email_to=getattr(space, "alert_email_to", None) or None,
+        alert_webhook_url=getattr(space, "alert_webhook_url", None) or None,
+        alert_state=getattr(space, "alert_state", "ok") or "ok",
+        alert_last_transition_at=getattr(space, "alert_last_transition_at", None),
         created_at=space.created_at,
         updated_at=space.updated_at,
         stats=stats,
     )
+
+
+def _apply_alert_fields(space: Space, body, is_create: bool):
+    """Copy alert fields from SpaceCreate/SpaceUpdate onto the Space row."""
+    fields = body.model_fields_set
+    if is_create or "alerts_enabled" in fields:
+        if body.alerts_enabled is not None:
+            space.alerts_enabled = bool(body.alerts_enabled)
+    if is_create or "alert_threshold_hours" in fields:
+        if body.alert_threshold_hours is not None:
+            space.alert_threshold_hours = int(body.alert_threshold_hours)
+    if is_create or "alert_email_to" in fields:
+        val = (body.alert_email_to or "").strip() or None
+        space.alert_email_to = val
+    if is_create or "alert_webhook_url" in fields:
+        val = (body.alert_webhook_url or "").strip() or None
+        space.alert_webhook_url = val
 
 
 def _apply_omada_fields(space: Space, body, is_create: bool):
@@ -116,6 +139,7 @@ def create_space(
         updated_at=now,
     )
     _apply_omada_fields(space, body, is_create=True)
+    _apply_alert_fields(space, body, is_create=True)
     db.add(space)
     db.commit()
     db.refresh(space)
@@ -176,6 +200,7 @@ def update_space(
         reload_needed = True
 
     omada_changed = _apply_omada_fields(space, body, is_create=False)
+    _apply_alert_fields(space, body, is_create=False)
 
     space.updated_at = datetime.now(timezone.utc).isoformat()
     db.commit()
