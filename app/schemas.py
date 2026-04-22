@@ -142,6 +142,10 @@ class AlertTestRequest(BaseModel):
     to_email: str = Field(..., min_length=3, max_length=254)
 
 
+class TestLogRequest(BaseModel):
+    message: str = Field(default="Test depuis SyslogHub", min_length=1, max_length=512)
+
+
 class SystemStatus(BaseModel):
     rsyslog_active: bool
     nginx_active: bool

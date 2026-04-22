@@ -16,6 +16,7 @@ Serveur SYSLOG centralisé avec interface web HTTPS — simple à déployer, fac
 - **Mode LAN** (par espace) : consolide toutes les sources dans un fichier `_all.log` supplémentaire et une vue combinée, tout en gardant la séparation par IP
 - **Téléchargement par plage de dates** : sur une source, choisir un intervalle et récupérer un seul `.log` concaténant toutes les archives (`.log.N.gz` décompressés à la volée)
 - **Live tail (SSE)** : bouton *Live* dans le visualiseur — nouvelles lignes poussées en temps réel via Server-Sent Events, comme un `tail -f` dans le navigateur. Disponible sur les vues par-IP et sur la vue combinée (Mode LAN).
+- **Bouton "Envoyer un log test"** : sur la page des sources d'un espace, envoie un syslog UDP depuis `127.0.0.1` avec un message personnalisable, pour vérifier que la réception est active et que la chaîne rsyslog → fichier fonctionne. Refuse l'envoi avec un message clair si l'espace a une allowlist incompatible.
 - **Alertes "no-logs"** : notification email (SMTP Gmail / App Password) + webhook si un espace ne reçoit plus de logs depuis *X* heures (défaut 24h). Une alerte au passage DOWN, une alerte de retour (RECOVERY). Seuil, destinataire et webhook configurables par espace.
 
 ## Stack

@@ -48,6 +48,12 @@
       {% if space.lan_mode %}
       <a href="/logs/{{ space.id }}/merged" class="btn btn-primary btn-sm">Vue combinée (toutes sources)</a>
       {% endif %}
+      <button class="btn btn-secondary btn-sm" type="button" onclick="openTestLogModal()" title="Envoyer un log de test depuis 127.0.0.1">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/>
+        </svg>
+        Envoyer un log test
+      </button>
       <a href="/api/logs/{{ space.id }}/download-zip" class="btn btn-secondary btn-sm">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
@@ -89,6 +95,29 @@
       <tr><td colspan="6" class="text-center text-muted">Chargement…</td></tr>
     </tbody>
   </table>
+</div>
+
+<!-- Test log modal -->
+<div id="modal-test-log" class="modal-overlay" style="display:none">
+  <div class="modal">
+    <h3>Envoyer un log de test</h3>
+    <p class="text-muted" style="font-size:13px">
+      Un syslog UDP sera envoyé depuis <code>127.0.0.1</code> vers le port
+      <strong>{{ space.port }}</strong>. Utile pour vérifier que la réception
+      est active et que l'allowlist laisse passer le trafic local.
+    </p>
+    <div class="form-group">
+      <label for="test-log-message">Message</label>
+      <input type="text" id="test-log-message" class="form-control"
+             maxlength="512" placeholder="Test depuis SyslogHub"
+             value="Test depuis SyslogHub">
+      <small class="text-muted">La date et l'heure sont ajoutées automatiquement par rsyslog.</small>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeTestLogModal()">Annuler</button>
+      <button class="btn btn-primary" id="test-log-send">Envoyer</button>
+    </div>
+  </div>
 </div>
 
 <!-- Delete confirmation modal -->

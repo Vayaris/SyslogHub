@@ -2,6 +2,7 @@ import io
 import ipaddress
 import logging
 import re
+import socket
 import subprocess
 import zipfile
 from datetime import datetime, timezone
@@ -19,7 +20,7 @@ from ..database import get_db
 from ..models import Space
 from ..schemas import (
     FileInfo, LogViewResult, SearchResponse, SearchResult,
-    SourceInfo, SourceListResponse,
+    SourceInfo, SourceListResponse, TestLogRequest,
 )
 from ..services import omada as omada_svc
 from ..services import log_scanner
@@ -135,6 +136,45 @@ def delete_source(
         raise HTTPException(status_code=404, detail="Aucun fichier trouvé pour cette source")
 
     return {"ok": True, "deleted_files": deleted}
+
+
+@router.post("/{space_id}/test")
+def send_test_log(
+    space_id: int,
+    body: TestLogRequest,
+    db: Session = Depends(get_db),
+    _: str = Depends(get_current_user),
+):
+    """Envoie un syslog UDP de test depuis 127.0.0.1 vers le port de l'espace,
+    pour vérifier que la réception est opérationnelle et autorisée."""
+    space = _get_space_or_404(space_id, db)
+
+    allowed_ip = getattr(space, "allowed_ip", None)
+    if allowed_ip and allowed_ip not in ("127.0.0.1", "::1"):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"L'espace filtre les logs sur {allowed_ip}. Un test local "
+                f"depuis 127.0.0.1 serait ignoré par rsyslog. Retirez "
+                f"temporairement l'allowlist pour tester."
+            ),
+        )
+
+    timestamp = datetime.now().strftime("%b %d %H:%M:%S")
+    # RFC 3164: <PRI>TIMESTAMP HOSTNAME TAG: MSG
+    # PRI=14 = facility user.info
+    frame = f"<14>{timestamp} syslog-server sysloghub-test: {body.message}"
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.sendto(frame.encode("utf-8", errors="replace"), ("127.0.0.1", int(space.port)))
+    except OSError as e:
+        log.warning(f"Test log send failed on space {space.id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Envoi UDP impossible : {e}")
+    finally:
+        sock.close()
+
+    return {"ok": True, "message": body.message, "frame": frame}
 
 
 @router.get("/{space_id}/sources", response_model=SourceListResponse)

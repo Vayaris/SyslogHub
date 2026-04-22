@@ -131,6 +131,45 @@ if (document.getElementById('modal-delete-source')) {
   });
 }
 
+// ── Test log ────────────────────────────────────────────────────────────────
+
+function openTestLogModal() {
+  const modal = document.getElementById('modal-test-log');
+  if (!modal) return;
+  modal.style.display = 'flex';
+  const input = document.getElementById('test-log-message');
+  if (input) { input.focus(); input.select(); }
+  document.getElementById('test-log-send').onclick = sendTestLog;
+}
+
+function closeTestLogModal() {
+  const modal = document.getElementById('modal-test-log');
+  if (modal) modal.style.display = 'none';
+}
+
+async function sendTestLog() {
+  const input = document.getElementById('test-log-message');
+  const btn = document.getElementById('test-log-send');
+  const message = (input.value || '').trim() || 'Test depuis SyslogHub';
+  btn.disabled = true;
+  try {
+    await api('POST', `/logs/${SPACE_ID}/test`, { message });
+    closeTestLogModal();
+    showToast('Log de test envoyé — rafraîchissement des sources…', 'success');
+    setTimeout(() => loadSources(), 600);
+  } catch (err) {
+    showToast(err.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+if (document.getElementById('modal-test-log')) {
+  document.getElementById('modal-test-log').addEventListener('click', (e) => {
+    if (e.target.id === 'modal-test-log') closeTestLogModal();
+  });
+}
+
 async function doSearch() {
   const q = document.getElementById('search-input').value.trim();
   if (q.length < 3) { showToast('Saisir au moins 3 caractères', 'info'); return; }
