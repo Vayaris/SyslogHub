@@ -12,9 +12,10 @@ Serveur SYSLOG centralisé avec interface web HTTPS — simple à déployer, fac
 - Configuration dynamique sans redémarrage manuel
 - Rétention et rotation automatiques + backup quotidien de la base
 - Authentification par login/mot de passe (rotation de session à chaque changement de MDP)
-- **Intégration TP-Link Omada SDN par espace** (Northbound OpenAPI, supporte mode MSP multi-clients) : chaque espace peut pointer sur un contrôleur distinct pour enrichir les logs avec noms et modèles des équipements (bornes WiFi, switches, gateways)
+- **Intégration TP-Link Omada SDN par espace** (Northbound OpenAPI, supporte mode MSP multi-clients) : chaque espace peut pointer sur un contrôleur distinct. Les équipements (bornes WiFi, switches, gateways) sont enrichis dans les logs **et dans le tableau des sources** avec leur nom et leur modèle (rapprochement par IP, fallback AP MAC extraite des logs).
 - **Mode LAN** (par espace) : consolide toutes les sources dans un fichier `_all.log` supplémentaire et une vue combinée, tout en gardant la séparation par IP
 - **Téléchargement par plage de dates** : sur une source, choisir un intervalle et récupérer un seul `.log` concaténant toutes les archives (`.log.N.gz` décompressés à la volée)
+- **Live tail (SSE)** : bouton *Live* dans le visualiseur — nouvelles lignes poussées en temps réel via Server-Sent Events, comme un `tail -f` dans le navigateur. Disponible sur les vues par-IP et sur la vue combinée (Mode LAN).
 - **Alertes "no-logs"** : notification email (SMTP Gmail / App Password) + webhook si un espace ne reçoit plus de logs depuis *X* heures (défaut 24h). Une alerte au passage DOWN, une alerte de retour (RECOVERY). Seuil, destinataire et webhook configurables par espace.
 
 ## Stack

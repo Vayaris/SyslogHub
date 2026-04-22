@@ -202,15 +202,19 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    # Streaming pour le téléchargement de logs
+    # Streaming (téléchargement + SSE live tail)
     location /api/logs/ {
         proxy_pass http://127.0.0.1:8000;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
         proxy_buffering off;
-        proxy_read_timeout 300s;
+        proxy_cache off;
+        # SSE /stream endpoints close server-side after 900s idle; allow a bit more here.
+        proxy_read_timeout 960s;
+        proxy_send_timeout 960s;
     }
 
     # Toutes les autres requêtes
