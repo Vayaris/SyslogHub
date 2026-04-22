@@ -1,3 +1,4 @@
+import asyncio
 import gzip
 import os
 import re
@@ -106,6 +107,23 @@ def get_space_stats(port: int) -> dict:
         "total_size_bytes": total_size,
         "last_seen": _format_dt(last_mtime) if last_mtime else None,
     }
+
+
+def first_ap_mac_in(path: Path, max_lines: int = 200) -> str | None:
+    """Scan the last `max_lines` of an active log file for an `AP MAC=` tag.
+    Returns the first MAC found (not necessarily chronologically earliest),
+    used as a fallback when Omada IP lookup fails."""
+    if not path.exists() or path.name.endswith(".gz"):
+        return None
+    try:
+        raw = _tail_file(path, max_lines)
+    except OSError:
+        return None
+    for line in raw:
+        mac = extract_ap_mac(line.decode("utf-8", errors="replace"))
+        if mac:
+            return mac
+    return None
 
 
 def list_sources(port: int) -> list[dict]:
@@ -341,6 +359,30 @@ def files_in_date_range(port: int, ip: str,
     entries = [(f, m) for (f, m) in entries if lo <= m <= hi]
     entries.sort(key=lambda t: t[1])
     return [f for (f, _) in entries]
+
+
+async def tail_stream(path: Path, max_idle_seconds: int = 900,
+                      poll_interval: float = 0.5):
+    """Async generator that yields each new line appended to `path`.
+
+    Starts from EOF (no backfill) so callers can load history via the
+    existing /view endpoint and then switch to this stream for live updates.
+    Closes itself after `max_idle_seconds` of inactivity to avoid leaking
+    connections when a user abandons the tab without navigating away.
+    """
+    loop = asyncio.get_event_loop()
+    last_activity = loop.time()
+    with open(path, "r", errors="replace") as f:
+        f.seek(0, 2)  # start at EOF
+        while True:
+            line = f.readline()
+            if line:
+                last_activity = loop.time()
+                yield line.rstrip("\n")
+            else:
+                if loop.time() - last_activity > max_idle_seconds:
+                    return
+                await asyncio.sleep(poll_interval)
 
 
 def stream_file_contents(path: Path):

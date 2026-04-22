@@ -1,10 +1,13 @@
 import io
 import ipaddress
+import logging
 import re
 import subprocess
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
+
+log = logging.getLogger("syslog-server")
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -153,7 +156,30 @@ def list_sources(
     total = len(sources)
     pages = max(1, (total + per_page - 1) // per_page)
     start = (page - 1) * per_page
-    items = [SourceInfo(**s) for s in sources[start:start + per_page]]
+    page_slice = sources[start:start + per_page]
+
+    # Enrich the visible page with Omada device name/model when configured.
+    # Try IP match first (free — uses cached device list); fall back to scanning
+    # the tail of the active file for an AP MAC if the IP didn't resolve.
+    omada = omada_svc.get_client_for_space(space)
+    if omada:
+        try:
+            for s in page_slice:
+                dev = omada.get_device_by_ip(s["ip"])
+                if not dev:
+                    mac = log_scanner.first_ap_mac_in(
+                        Path(config.LOG_ROOT) / str(space.port) / s["filename"],
+                        max_lines=200,
+                    )
+                    if mac:
+                        dev = omada.get_device_by_mac(mac)
+                if dev:
+                    s["device_name"]  = dev.get("name")
+                    s["device_model"] = dev.get("model")
+        except Exception as e:
+            log.warning(f"Omada enrichment failed on space {space.id}: {e}")
+
+    items = [SourceInfo(**s) for s in page_slice]
 
     return SourceListResponse(
         items=items, total=total, page=page, per_page=per_page, pages=pages
@@ -242,6 +268,60 @@ def view_merged_log(
         path, lines=lines, offset=offset, filter_str=filter,
     )
     return LogViewResult(**result)
+
+
+@router.get("/{space_id}/sources/{ip}/stream")
+async def stream_log(
+    space_id: int,
+    ip: str,
+    filename: str = Query(...),
+    db: Session = Depends(get_db),
+    _: str = Depends(get_current_user),
+):
+    space = _get_space_or_404(space_id, db)
+    path = _validate_log_path(space.port, ip, filename)
+
+    async def event_generator():
+        async for line in log_scanner.tail_stream(path):
+            yield f"data: {line}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control":     "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection":        "keep-alive",
+        },
+    )
+
+
+@router.get("/{space_id}/merged/stream")
+async def stream_merged_log(
+    space_id: int,
+    db: Session = Depends(get_db),
+    _: str = Depends(get_current_user),
+):
+    space = _get_space_or_404(space_id, db)
+    if not getattr(space, "lan_mode", False):
+        raise HTTPException(status_code=404, detail="Mode LAN désactivé pour cet espace")
+    path = log_scanner._merged_log_path(space.port)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Aucun log reçu pour l'instant")
+
+    async def event_generator():
+        async for line in log_scanner.tail_stream(path):
+            yield f"data: {line}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control":     "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection":        "keep-alive",
+        },
+    )
 
 
 @router.get("/{space_id}/sources/{ip}/download")

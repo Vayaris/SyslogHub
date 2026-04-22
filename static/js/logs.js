@@ -48,9 +48,20 @@ async function loadSources() {
       return;
     }
 
-    tbody.innerHTML = res.items.map(s => `
+    tbody.innerHTML = res.items.map(s => {
+      const main = s.device_name ? escHtml(s.device_name) : escHtml(s.ip);
+      const subParts = [];
+      if (s.device_name) subParts.push(escHtml(s.ip));
+      if (s.device_model) subParts.push(escHtml(s.device_model));
+      const sub = subParts.length
+        ? `<div class="source-sub">${subParts.join(' · ')}</div>`
+        : '';
+      return `
       <tr style="cursor:pointer" onclick="window.location='/logs/${SPACE_ID}/${escHtml(s.ip)}'">
-        <td><strong>${escHtml(s.ip)}</strong></td>
+        <td>
+          <div class="source-main">${main}</div>
+          ${sub}
+        </td>
         <td>${formatBytes(s.size_bytes)}</td>
         <td>${s.line_count.toLocaleString()}</td>
         <td>${formatDate(s.last_modified)}</td>
@@ -60,8 +71,8 @@ async function loadSources() {
             <button class="btn btn-danger btn-sm" onclick="confirmDeleteSource('${escHtml(s.ip)}')">Supprimer</button>
           </div>
         </td>
-      </tr>
-    `).join('');
+      </tr>`;
+    }).join('');
 
     renderSourcesPagination(res.page, res.pages);
   } catch (err) {
@@ -401,6 +412,51 @@ function applyAPFilter() {
   }
 
   loadLogContent();
+}
+
+// ── Live tail (SSE) ──────────────────────────────────────────────────────────
+let _liveSource = null;
+
+function toggleLive() {
+  const btn = document.getElementById('live-toggle');
+  const label = document.getElementById('live-label');
+  const output = document.getElementById('log-output');
+  if (!btn || !output) return;
+
+  if (_liveSource) {
+    _liveSource.close();
+    _liveSource = null;
+    btn.classList.remove('btn-live-active');
+    if (label) label.textContent = 'Live';
+    return;
+  }
+
+  // Stop auto-refresh if running — the two don't mix well.
+  const ar = document.getElementById('autorefresh-toggle');
+  if (ar && ar.checked) { ar.checked = false; ar.dispatchEvent(new Event('change')); }
+
+  const isMerged = typeof MERGED !== 'undefined' && MERGED;
+  const url = isMerged
+    ? `/api/logs/${SPACE_ID}/merged/stream`
+    : `/api/logs/${SPACE_ID}/sources/${SOURCE_IP}/stream?filename=${encodeURIComponent(FILENAME)}`;
+
+  output.textContent = '[Live — en attente de nouvelles lignes…]';
+  _liveSource = new EventSource(url);
+  let first = true;
+  _liveSource.onmessage = (e) => {
+    if (first) { output.textContent = ''; first = false; }
+    output.textContent += (output.textContent ? '\n' : '') + e.data;
+    output.scrollTop = output.scrollHeight;
+  };
+  _liveSource.onerror = () => {
+    showToast('Flux live interrompu', 'warning');
+    if (_liveSource) { _liveSource.close(); _liveSource = null; }
+    btn.classList.remove('btn-live-active');
+    if (label) label.textContent = 'Live';
+  };
+
+  btn.classList.add('btn-live-active');
+  if (label) label.textContent = 'Live • actif';
 }
 
 async function loadLogContent() {

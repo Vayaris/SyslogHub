@@ -157,6 +157,8 @@ class SourceInfo(BaseModel):
     size_bytes: int
     line_count: int
     last_modified: str
+    device_name:  Optional[str] = None
+    device_model: Optional[str] = None
 
 
 class SourceListResponse(BaseModel):

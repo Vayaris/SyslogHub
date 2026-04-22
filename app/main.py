@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -8,9 +9,12 @@ from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from .database import get_db, init_db
 from .auth import validate_session, create_session
+from .models import Space as SpaceModel
 from .routers import auth, spaces, logs, settings
 from .utils import service_active
 from . import config
+
+log = logging.getLogger("syslog-server")
 
 BASE = Path("/opt/syslog-server")
 
@@ -76,6 +80,20 @@ def _require_auth(request: Request):
     return None
 
 
+def _fetch_space_or_redirect(space_id: int, redirect_url: str = "/dashboard"):
+    """Look up a Space by id. Returns (space, None) on success, or
+    (None, RedirectResponse) if not found. Caller is responsible for
+    returning the redirect when present."""
+    db: Session = next(get_db())
+    try:
+        space = db.query(SpaceModel).filter(SpaceModel.id == space_id).first()
+        if not space:
+            return None, RedirectResponse(url=redirect_url, status_code=302)
+        return space, None
+    finally:
+        db.close()
+
+
 # ── HTML page routes ──────────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
@@ -124,19 +142,13 @@ def spaces_edit_page(request: Request, space_id: int):
     redir = _require_auth(request)
     if redir:
         return redir
-    # Fetch space for pre-fill
-    db: Session = next(get_db())
-    try:
-        from .models import Space as SpaceModel
-        space = db.query(SpaceModel).filter(SpaceModel.id == space_id).first()
-        if not space:
-            return RedirectResponse(url="/spaces", status_code=302)
-        return templates.TemplateResponse(
-            "space_edit.html",
-            {"request": request, "mode": "edit", "space": space},
-        )
-    finally:
-        db.close()
+    space, rr = _fetch_space_or_redirect(space_id, redirect_url="/spaces")
+    if rr:
+        return rr
+    return templates.TemplateResponse(
+        "space_edit.html",
+        {"request": request, "mode": "edit", "space": space},
+    )
 
 
 @app.get("/logs/{space_id}", response_class=HTMLResponse)
@@ -144,17 +156,12 @@ def logs_space_page(request: Request, space_id: int):
     redir = _require_auth(request)
     if redir:
         return redir
-    db: Session = next(get_db())
-    try:
-        from .models import Space as SpaceModel
-        space = db.query(SpaceModel).filter(SpaceModel.id == space_id).first()
-        if not space:
-            return RedirectResponse(url="/dashboard", status_code=302)
-        return templates.TemplateResponse(
-            "logs_space.html", {"request": request, "space": space}
-        )
-    finally:
-        db.close()
+    space, rr = _fetch_space_or_redirect(space_id)
+    if rr:
+        return rr
+    return templates.TemplateResponse(
+        "logs_space.html", {"request": request, "space": space}
+    )
 
 
 @app.get("/logs/{space_id}/merged", response_class=HTMLResponse)
@@ -162,21 +169,16 @@ def logs_merged_page(request: Request, space_id: int):
     redir = _require_auth(request)
     if redir:
         return redir
-    db: Session = next(get_db())
-    try:
-        from .models import Space as SpaceModel
-        space = db.query(SpaceModel).filter(SpaceModel.id == space_id).first()
-        if not space:
-            return RedirectResponse(url="/dashboard", status_code=302)
-        if not getattr(space, "lan_mode", False):
-            return RedirectResponse(url=f"/logs/{space_id}", status_code=302)
-        return templates.TemplateResponse(
-            "logs_viewer.html",
-            {"request": request, "space": space, "ip": "_all",
-             "filename": "_all.log", "merged": True},
-        )
-    finally:
-        db.close()
+    space, rr = _fetch_space_or_redirect(space_id)
+    if rr:
+        return rr
+    if not getattr(space, "lan_mode", False):
+        return RedirectResponse(url=f"/logs/{space_id}", status_code=302)
+    return templates.TemplateResponse(
+        "logs_viewer.html",
+        {"request": request, "space": space, "ip": "_all",
+         "filename": "_all.log", "merged": True},
+    )
 
 
 @app.get("/logs/{space_id}/{ip}", response_class=HTMLResponse)
@@ -184,17 +186,12 @@ def logs_files_page(request: Request, space_id: int, ip: str):
     redir = _require_auth(request)
     if redir:
         return redir
-    db: Session = next(get_db())
-    try:
-        from .models import Space as SpaceModel
-        space = db.query(SpaceModel).filter(SpaceModel.id == space_id).first()
-        if not space:
-            return RedirectResponse(url="/dashboard", status_code=302)
-        return templates.TemplateResponse(
-            "logs_files.html", {"request": request, "space": space, "ip": ip}
-        )
-    finally:
-        db.close()
+    space, rr = _fetch_space_or_redirect(space_id)
+    if rr:
+        return rr
+    return templates.TemplateResponse(
+        "logs_files.html", {"request": request, "space": space, "ip": ip}
+    )
 
 
 @app.get("/logs/{space_id}/{ip}/view", response_class=HTMLResponse)
@@ -202,20 +199,15 @@ def logs_viewer_page(request: Request, space_id: int, ip: str):
     redir = _require_auth(request)
     if redir:
         return redir
-    db: Session = next(get_db())
-    try:
-        from .models import Space as SpaceModel
-        space = db.query(SpaceModel).filter(SpaceModel.id == space_id).first()
-        if not space:
-            return RedirectResponse(url="/dashboard", status_code=302)
-        filename = request.query_params.get("filename", f"{ip}.log")
-        return templates.TemplateResponse(
-            "logs_viewer.html",
-            {"request": request, "space": space, "ip": ip,
-             "filename": filename, "merged": False},
-        )
-    finally:
-        db.close()
+    space, rr = _fetch_space_or_redirect(space_id)
+    if rr:
+        return rr
+    filename = request.query_params.get("filename", f"{ip}.log")
+    return templates.TemplateResponse(
+        "logs_viewer.html",
+        {"request": request, "space": space, "ip": ip,
+         "filename": filename, "merged": False},
+    )
 
 
 @app.get("/settings", response_class=HTMLResponse)
@@ -234,7 +226,6 @@ def startup():
     # Ensure initial rsyslog config is applied
     db: Session = next(get_db())
     try:
-        from .models import Space as SpaceModel, Setting
         from .services import rsyslog as rsyslog_svc
 
         spaces_list = db.query(SpaceModel).all()
@@ -242,9 +233,6 @@ def startup():
             try:
                 rsyslog_svc.apply_rsyslog_config(spaces_list)
             except Exception as e:
-                import logging
-                logging.getLogger("syslog-server").warning(
-                    f"rsyslog config apply at startup: {e}"
-                )
+                log.warning(f"rsyslog config apply at startup: {e}")
     finally:
         db.close()

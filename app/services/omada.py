@@ -171,6 +171,14 @@ class OmadaClient:
                 return d
         return None
 
+    def get_device_by_ip(self, ip: str) -> dict | None:
+        if not ip:
+            return None
+        for d in self.get_devices():
+            if d.get("ip") == ip:
+                return d
+        return None
+
     def get_ap_by_mac(self, mac: str) -> dict | None:
         d = self.get_device_by_mac(mac)
         if d and (d.get("type") or "").lower() == "ap":
