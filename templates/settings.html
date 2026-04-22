@@ -200,7 +200,7 @@
       <h3>Audit</h3>
       <button class="btn btn-secondary btn-sm" onclick="loadAudit()">Rafraîchir</button>
     </div>
-    <div class="audit-filters" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+    <div class="audit-filters">
       <select id="audit-action" onchange="loadAudit(1)">
         <option value="">Toutes les actions</option>
         <option value="login">login</option>
@@ -218,14 +218,12 @@
         <option value="audit_purge">audit_purge</option>
       </select>
       <input type="text" id="audit-username" placeholder="utilisateur" onchange="loadAudit(1)">
-      <p class="help-text" style="margin:0;flex:1">
-        Traces conservées 180 jours maximum.
-      </p>
+      <p class="help-text">Traces conservées 180 jours maximum.</p>
     </div>
     <div id="audit-content">
       <div class="loading-placeholder">Chargement…</div>
     </div>
-    <div id="audit-pagination" style="display:flex;gap:8px;align-items:center;margin-top:12px"></div>
+    <div id="audit-pagination" class="audit-pagination"></div>
   </div>
 
 </div>

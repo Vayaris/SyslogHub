@@ -265,7 +265,7 @@ async function loadSessions() {
     const rows = sessions.map(s => {
       const created = new Date(s.created_at).toLocaleString('fr-FR');
       const lastSeen = new Date(s.last_seen_at).toLocaleString('fr-FR');
-      const ua = (s.user_agent || '').slice(0, 80);
+      const ua = s.user_agent || '';
       const currentBadge = s.is_current
         ? '<span class="badge badge-success">Cette session</span>' : '';
       const revokeBtn = s.is_current
@@ -274,15 +274,14 @@ async function loadSessions() {
       return `
         <tr${s.is_current ? ' class="row-highlight"' : ''}>
           <td class="mono">${escapeHtml(s.ip || '—')}</td>
-          <td class="text-muted" style="font-size:0.85em" title="${escapeHtml(s.user_agent || '')}">${escapeHtml(ua || '—')}</td>
+          <td class="col-ua" title="${escapeHtml(ua)}">${escapeHtml(ua || '—')}</td>
           <td class="mono">${created}</td>
           <td class="mono">${lastSeen}</td>
-          <td>${currentBadge}</td>
-          <td>${revokeBtn}</td>
+          <td class="col-actions">${currentBadge}${revokeBtn}</td>
         </tr>`;
     }).join('');
     container.innerHTML = `
-      <div style="overflow-x:auto">
+      <div class="data-table-scroll">
         <table class="data-table">
           <thead>
             <tr>
@@ -290,8 +289,7 @@ async function loadSessions() {
               <th>Navigateur</th>
               <th>Créée</th>
               <th>Dernière activité</th>
-              <th></th>
-              <th></th>
+              <th style="text-align:right">Actions</th>
             </tr>
           </thead>
           <tbody>${rows}</tbody>
@@ -365,11 +363,11 @@ async function loadAudit(page) {
           <td><span class="badge badge-subtle">${escapeHtml(e.action)}</span></td>
           <td>${escapeHtml(e.username || '—')}</td>
           <td class="mono">${escapeHtml(e.ip || '—')}</td>
-          <td class="text-muted" style="font-size:0.85em">${escapeHtml(details)}</td>
+          <td class="col-details">${escapeHtml(details)}</td>
         </tr>`;
     }).join('');
     container.innerHTML = `
-      <div style="overflow-x:auto">
+      <div class="data-table-scroll">
         <table class="data-table">
           <thead>
             <tr>
