@@ -24,6 +24,7 @@ class SpaceOut(BaseModel):
     omada_client_id:  Optional[str] = None
     omada_verify_ssl: bool = False
     omada_configured: bool = False
+    omada_controller_ip: Optional[str] = None
     # Alerts (v1.7.0)
     alerts_enabled:        bool = False
     alert_threshold_hours: int = 24
@@ -52,6 +53,7 @@ class SpaceCreate(BaseModel):
     omada_client_id:     Optional[str] = None
     omada_client_secret: Optional[str] = None
     omada_verify_ssl:    bool = False
+    omada_controller_ip: Optional[str] = None
     # Alerts (v1.7.0)
     alerts_enabled:        Optional[bool] = None
     alert_threshold_hours: Optional[int] = Field(None, ge=1, le=720)
@@ -83,6 +85,7 @@ class SpaceUpdate(BaseModel):
     omada_client_id:     Optional[str] = None
     omada_client_secret: Optional[str] = None  # Empty/None = keep; value = overwrite
     omada_verify_ssl:    Optional[bool] = None
+    omada_controller_ip: Optional[str] = None
     # Alerts (v1.7.0). Empty string on text fields = clear.
     alerts_enabled:        Optional[bool] = None
     alert_threshold_hours: Optional[int] = Field(None, ge=1, le=720)
@@ -163,6 +166,8 @@ class SourceInfo(BaseModel):
     last_modified: str
     device_name:  Optional[str] = None
     device_model: Optional[str] = None
+    geoip_country: Optional[str] = None  # ISO-3166 alpha-2, only for public IPs
+    rdns_name:     Optional[str] = None
 
 
 class SourceListResponse(BaseModel):
@@ -199,5 +204,74 @@ class SearchResult(BaseModel):
 class SearchResponse(BaseModel):
     results: list[SearchResult]
     truncated: bool
+
+
+class AuditEntry(BaseModel):
+    id: int
+    ts: str
+    username: Optional[str] = None
+    action: str
+    ip: Optional[str] = None
+    user_agent: Optional[str] = None
+    details: Optional[str] = None  # JSON string (already serialised by log_event)
+
+
+class AuditListResponse(BaseModel):
+    items: list[AuditEntry]
+    total: int
+    page: int
+    per_page: int
+    pages: int
+
+
+class SessionInfo(BaseModel):
+    id: str
+    username: str
+    created_at: str
+    last_seen_at: str
+    ip: Optional[str] = None
+    user_agent: Optional[str] = None
+    is_current: bool = False
+
+
+class TOTPSetupResponse(BaseModel):
+    uri: str
+    svg: str
+
+
+class TOTPActivateRequest(BaseModel):
+    code: str = Field(..., min_length=6, max_length=10)
+
+
+class TOTPDisableRequest(BaseModel):
+    password: str = Field(..., min_length=1)
+
+
+class TOTPStatus(BaseModel):
+    enabled: bool
+    pending: bool = False
+
+
+class TOTPLoginRequest(BaseModel):
+    tx_id: str
+    code: str = Field(..., min_length=6, max_length=10)
+
+
+class OIDCConfigOut(BaseModel):
+    enabled: bool
+    discovery_url: Optional[str] = None
+    client_id: Optional[str] = None
+    allowlist: Optional[str] = None
+    button_label: Optional[str] = None
+    client_secret_set: bool = False
+
+
+class OIDCConfigUpdate(BaseModel):
+    enabled: Optional[bool] = None
+    discovery_url: Optional[str] = None
+    client_id: Optional[str] = None
+    client_secret: Optional[str] = None  # empty/None = keep
+    allowlist: Optional[str] = None
+    button_label: Optional[str] = None
 
 

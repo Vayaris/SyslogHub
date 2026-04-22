@@ -67,8 +67,21 @@ fi
   "bcrypt==4.3.0" \
   "python-multipart==0.0.20" \
   "aiofiles==24.1.0" \
-  "python-dotenv==1.1.0"
+  "python-dotenv==1.1.0" \
+  "maxminddb==2.7.0" \
+  "pyotp==2.9.0" \
+  "qrcode==8.0" \
+  "authlib==1.5.2" \
+  "httpx==0.28.1"
 success "Virtualenv prêt"
+
+# ── GeoIP DB (db-ip.com Country Lite, CC-BY 4.0) ──────────────────────────────
+info "       Téléchargement de la base GeoIP (db-ip.com)"
+if "$VENV/bin/python3" "$APP_DIR/scripts/download_dbip.py"; then
+  success "Base GeoIP prête"
+else
+  warn "Téléchargement GeoIP échoué — l'enrichissement pays sera désactivé."
+fi
 
 # ── ÉTAPE 5 : config/app.env ─────────────────────────────────────────────────
 info "Étape 5/15 : Génération de la configuration"

@@ -26,6 +26,7 @@ class Space(Base):
     omada_client_secret = Column(Text, nullable=True)
     omada_site_name     = Column(Text, nullable=True)
     omada_verify_ssl    = Column(Boolean, nullable=False, default=False)
+    omada_controller_ip = Column(String(45), nullable=True)  # v1.9.0 — alias contrôleur
 
     # Per-space no-log alerts (v1.7.0)
     alerts_enabled           = Column(Boolean, nullable=False, default=False)
@@ -44,3 +45,27 @@ class Setting(Base):
 
     key = Column(String(64), primary_key=True)
     value = Column(Text, nullable=False)
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    ts         = Column(String(32), nullable=False, index=True)
+    username   = Column(String(100), nullable=True)
+    action     = Column(String(40), nullable=False, index=True)
+    ip         = Column(String(45), nullable=True)
+    user_agent = Column(String(255), nullable=True)
+    details    = Column(Text, nullable=True)  # JSON string, optional
+
+
+class ActiveSession(Base):
+    __tablename__ = "active_sessions"
+
+    id           = Column(String(32), primary_key=True)  # hex uuid4
+    username     = Column(String(100), nullable=False, index=True)
+    created_at   = Column(String(32), nullable=False)
+    last_seen_at = Column(String(32), nullable=False)
+    ip           = Column(String(45), nullable=True)
+    user_agent   = Column(String(255), nullable=True)
+    revoked      = Column(Boolean, nullable=False, default=False)

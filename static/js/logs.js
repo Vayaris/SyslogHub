@@ -53,6 +53,8 @@ async function loadSources() {
       const subParts = [];
       if (s.device_name) subParts.push(escHtml(s.ip));
       if (s.device_model) subParts.push(escHtml(s.device_model));
+      if (s.geoip_country) subParts.push(`<span class="badge-geo">${escHtml(s.geoip_country)}</span>`);
+      if (s.rdns_name) subParts.push(escHtml(s.rdns_name));
       const sub = subParts.length
         ? `<div class="source-sub">${subParts.join(' · ')}</div>`
         : '';

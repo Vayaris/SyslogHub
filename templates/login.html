@@ -33,11 +33,70 @@
         <button type="submit" class="btn btn-primary btn-full" id="login-btn">
           Se connecter
         </button>
+        <a id="sso-btn" href="/api/auth/oidc/login" class="btn btn-secondary btn-full"
+           style="display:none;margin-top:10px">Se connecter via SSO</a>
+      </form>
+
+      <form id="totp-form" class="login-form" style="display:none">
+        <div class="form-group">
+          <label for="totp-code">Code à 6 chiffres (application d'authentification)</label>
+          <input type="text" id="totp-code" inputmode="numeric" pattern="[0-9]*"
+                 autocomplete="one-time-code" maxlength="6" placeholder="••••••"
+                 style="font-size:22px;letter-spacing:6px;text-align:center" required>
+        </div>
+        <div id="totp-error" class="alert alert-danger" style="display:none"></div>
+        <button type="submit" class="btn btn-primary btn-full" id="totp-btn">Valider</button>
+        <button type="button" class="btn btn-secondary btn-full" id="totp-cancel"
+                style="margin-top:8px">Annuler</button>
       </form>
     </div>
   </div>
 
   <script>
+    let _txId = null;
+
+    // Show SSO button if OIDC is enabled on the server
+    (async () => {
+      try {
+        const res = await fetch('/api/auth/oidc/status', { credentials: 'same-origin' });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.enabled) {
+          const btn = document.getElementById('sso-btn');
+          btn.textContent = data.label || 'Se connecter via SSO';
+          btn.style.display = 'block';
+        }
+      } catch {}
+    })();
+
+    // Surface OIDC callback errors (e.g. ?error=oidc_denied)
+    (() => {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('error') === 'oidc_denied') {
+        const err = document.getElementById('login-error');
+        err.textContent = "Connexion SSO refusée. Vérifiez la liste blanche.";
+        err.style.display = 'block';
+      }
+    })();
+
+    function showLogin() {
+      _txId = null;
+      document.getElementById('login-form').style.display = '';
+      document.getElementById('totp-form').style.display = 'none';
+      document.getElementById('totp-code').value = '';
+      document.getElementById('login-error').style.display = 'none';
+      document.getElementById('totp-error').style.display = 'none';
+      const btn = document.getElementById('login-btn');
+      btn.disabled = false;
+      btn.textContent = 'Se connecter';
+    }
+
+    function showTotp() {
+      document.getElementById('login-form').style.display = 'none';
+      document.getElementById('totp-form').style.display = '';
+      setTimeout(() => document.getElementById('totp-code').focus(), 50);
+    }
+
     document.getElementById('login-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const btn = document.getElementById('login-btn');
@@ -56,15 +115,20 @@
             password: document.getElementById('password').value,
           })
         });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.totp_required) {
+          _txId = data.tx_id;
+          showTotp();
+          return;
+        }
         if (res.ok) {
           window.location = '/dashboard';
-        } else {
-          const data = await res.json();
-          err.textContent = data.detail || 'Identifiants invalides';
-          err.style.display = 'block';
-          btn.disabled = false;
-          btn.textContent = 'Se connecter';
+          return;
         }
+        err.textContent = data.detail || 'Identifiants invalides';
+        err.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = 'Se connecter';
       } catch {
         err.textContent = 'Erreur réseau';
         err.style.display = 'block';
@@ -72,6 +136,45 @@
         btn.textContent = 'Se connecter';
       }
     });
+
+    document.getElementById('totp-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('totp-btn');
+      const err = document.getElementById('totp-error');
+      const code = document.getElementById('totp-code').value.trim();
+      err.style.display = 'none';
+      if (!/^\d{6}$/.test(code)) {
+        err.textContent = 'Code à 6 chiffres requis';
+        err.style.display = 'block';
+        return;
+      }
+      btn.disabled = true;
+      btn.textContent = 'Vérification…';
+      try {
+        const res = await fetch('/api/auth/login/totp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ tx_id: _txId, code }),
+        });
+        if (res.ok) {
+          window.location = '/dashboard';
+          return;
+        }
+        const data = await res.json().catch(() => ({}));
+        err.textContent = data.detail || 'Code invalide';
+        err.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = 'Valider';
+      } catch {
+        err.textContent = 'Erreur réseau';
+        err.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = 'Valider';
+      }
+    });
+
+    document.getElementById('totp-cancel').addEventListener('click', showLogin);
   </script>
 </body>
 </html>

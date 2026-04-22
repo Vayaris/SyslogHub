@@ -507,6 +507,34 @@ body {
 }
 .settings-grid .card { padding: 24px; }
 .settings-grid .card-header { padding: 0 0 16px; border-bottom: 1px solid var(--color-border); margin-bottom: 20px; }
+.settings-grid .card.card-wide { grid-column: 1 / -1; }
+
+/* ── Sessions + Audit tables (v1.9.0) ───────────────────────────────────────── */
+.data-table .row-highlight { background: var(--color-primary-light, #eef4ff); }
+.badge-subtle {
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+  font-size: 11px;
+  font-weight: 500;
+}
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12.5px;
+}
+.audit-filters select,
+.audit-filters input { padding: 6px 10px; border: 1px solid var(--color-border); border-radius: 6px; font-size: 13px; }
+
+.badge-geo {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--color-primary-light, #eef4ff);
+  color: var(--color-primary, #2563eb);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
 
 /* ── Space Edit Grid ────────────────────────────────────────────────────────── */
 .space-edit-grid {

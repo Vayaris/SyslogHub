@@ -10,7 +10,7 @@ from pathlib import Path
 
 log = logging.getLogger("syslog-server")
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -24,6 +24,8 @@ from ..schemas import (
 )
 from ..services import omada as omada_svc
 from ..services import log_scanner
+from ..services import audit as audit_svc
+from ..services import geoip as geoip_svc
 
 router = APIRouter(prefix="/api/logs", tags=["logs"])
 
@@ -116,8 +118,9 @@ def search_logs(
 def delete_source(
     space_id: int,
     ip: str,
+    request: Request,
     db: Session = Depends(get_db),
-    _: str = Depends(get_current_user),
+    username: str = Depends(get_current_user),
 ):
     space = _get_space_or_404(space_id, db)
     _validate_ip(ip)
@@ -135,6 +138,10 @@ def delete_source(
     if not deleted:
         raise HTTPException(status_code=404, detail="Aucun fichier trouvé pour cette source")
 
+    audit_svc.log_event(db, request, "source_delete",
+                        username=username,
+                        details={"space_id": space.id, "ip": ip,
+                                 "files": deleted})
     return {"ok": True, "deleted_files": deleted}
 
 
@@ -142,8 +149,9 @@ def delete_source(
 def send_test_log(
     space_id: int,
     body: TestLogRequest,
+    request: Request,
     db: Session = Depends(get_db),
-    _: str = Depends(get_current_user),
+    username: str = Depends(get_current_user),
 ):
     """Envoie un syslog UDP de test depuis 127.0.0.1 vers le port de l'espace,
     pour vérifier que la réception est opérationnelle et autorisée."""
@@ -174,6 +182,9 @@ def send_test_log(
     finally:
         sock.close()
 
+    audit_svc.log_event(db, request, "test_log_send",
+                        username=username,
+                        details={"space_id": space.id, "port": space.port})
     return {"ok": True, "message": body.message, "frame": frame}
 
 
@@ -198,6 +209,31 @@ def list_sources(
     start = (page - 1) * per_page
     page_slice = sources[start:start + per_page]
 
+    # Alias: if a source IP matches the configured Omada controller IP for this
+    # space, label it explicitly. Takes precedence over device lookup below.
+    controller_ip = (getattr(space, "omada_controller_ip", None) or "").strip() or None
+    if controller_ip:
+        for s in page_slice:
+            if s["ip"] == controller_ip:
+                s["device_name"] = "Contrôleur Omada"
+                s["device_model"] = space.omada_base_url or None
+
+    # GeoIP + rDNS enrichment — only for spaces NOT in LAN mode (LAN addresses
+    # are private IPs, so GeoIP returns nothing and rDNS would hit local DNS).
+    # Bounded to first 20 IPs to keep worst-case latency predictable; repeat
+    # lookups are cheap (mmdb in memory, rDNS cached 1h).
+    if not getattr(space, "lan_mode", False):
+        budget = 20
+        for s in page_slice:
+            c = geoip_svc.country(s["ip"])
+            if c:
+                s["geoip_country"] = c
+            if budget > 0:
+                name = geoip_svc.rdns(s["ip"])
+                if name:
+                    s["rdns_name"] = name
+                budget -= 1
+
     # Enrich the visible page with Omada device name/model when configured.
     # Try IP match first (free — uses cached device list); fall back to scanning
     # the tail of the active file for an AP MAC if the IP didn't resolve.
@@ -205,6 +241,8 @@ def list_sources(
     if omada:
         try:
             for s in page_slice:
+                if s.get("device_name"):  # controller alias already set
+                    continue
                 dev = omada.get_device_by_ip(s["ip"])
                 if not dev:
                     mac = log_scanner.first_ap_mac_in(

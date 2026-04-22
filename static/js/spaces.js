@@ -164,11 +164,13 @@ function collectOmadaFields() {
   const baseUrl = document.getElementById('omada-base-url');
   if (!baseUrl) return {};
   const secret = document.getElementById('omada-client-secret').value;
+  const controllerEl = document.getElementById('omada-controller-ip');
   const fields = {
-    omada_base_url:   baseUrl.value.trim() || null,
-    omada_id:         document.getElementById('omada-id').value.trim() || null,
-    omada_client_id:  document.getElementById('omada-client-id').value.trim() || null,
-    omada_verify_ssl: document.getElementById('omada-verify-ssl').checked,
+    omada_base_url:      baseUrl.value.trim() || null,
+    omada_id:            document.getElementById('omada-id').value.trim() || null,
+    omada_client_id:     document.getElementById('omada-client-id').value.trim() || null,
+    omada_verify_ssl:    document.getElementById('omada-verify-ssl').checked,
+    omada_controller_ip: controllerEl ? (controllerEl.value.trim() || null) : null,
   };
   // Empty secret on edit = keep current; on create, send null (optional)
   if (secret) fields.omada_client_secret = secret;

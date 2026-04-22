@@ -21,6 +21,11 @@ chmod +x "$INSTALL_DIR/scripts/"*.py 2>/dev/null || true
 echo "==> Updating Python dependencies..."
 "$INSTALL_DIR/venv/bin/pip" install -q -r "$INSTALL_DIR/requirements.txt"
 
+# Refresh GeoIP DB (db-ip.com Country Lite). Monthly — skipped if <35 days old. (v1.9.0)
+echo "==> Refreshing GeoIP DB (db-ip.com)..."
+"$INSTALL_DIR/venv/bin/python3" "$INSTALL_DIR/scripts/download_dbip.py" || \
+    echo "    (GeoIP download failed — country enrichment disabled until next run)"
+
 # Deploy alerts timer if missing (added in v1.7.0)
 if [[ ! -f /etc/systemd/system/syslog-alerts.timer ]]; then
     echo "==> Installing syslog-alerts timer (v1.7.0)..."

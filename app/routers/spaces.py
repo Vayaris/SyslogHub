@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 
 from ..auth import get_current_user
@@ -9,6 +9,7 @@ from ..schemas import SpaceCreate, SpaceOut, SpaceStats, SpaceUpdate
 from ..services import rsyslog as rsyslog_svc
 from ..services import log_scanner
 from ..services import omada as omada_svc
+from ..services import audit as audit_svc
 
 router = APIRouter(prefix="/api/spaces", tags=["spaces"])
 
@@ -35,6 +36,7 @@ def _space_out(space: Space, with_stats: bool = True) -> SpaceOut:
         omada_client_id=space.omada_client_id or None,
         omada_verify_ssl=bool(space.omada_verify_ssl),
         omada_configured=omada_svc.is_configured(space),
+        omada_controller_ip=getattr(space, "omada_controller_ip", None) or None,
         alerts_enabled=bool(getattr(space, "alerts_enabled", False)),
         alert_threshold_hours=int(getattr(space, "alert_threshold_hours", 24) or 24),
         alert_email_to=getattr(space, "alert_email_to", None) or None,
@@ -75,9 +77,10 @@ def _apply_omada_fields(space: Space, body, is_create: bool):
 
     # Text fields — treat empty string as "clear"
     text_map = {
-        "omada_base_url":   "omada_base_url",
-        "omada_id":         "omada_id",
-        "omada_client_id":  "omada_client_id",
+        "omada_base_url":      "omada_base_url",
+        "omada_id":            "omada_id",
+        "omada_client_id":     "omada_client_id",
+        "omada_controller_ip": "omada_controller_ip",
     }
     for body_field, col in text_map.items():
         if is_create or body_field in fields_set:
@@ -119,8 +122,9 @@ def list_spaces(
 @router.post("", response_model=SpaceOut, status_code=201)
 def create_space(
     body: SpaceCreate,
+    request: Request,
     db: Session = Depends(get_db),
-    _: str = Depends(get_current_user),
+    username: str = Depends(get_current_user),
 ):
     existing = db.query(Space).filter(Space.port == body.port).first()
     if existing:
@@ -154,6 +158,10 @@ def create_space(
             detail=f"Impossible d'ouvrir le port {body.port} : {msg}",
         )
 
+    audit_svc.log_event(db, request, "space_create",
+                        username=username,
+                        details={"space_id": space.id, "name": space.name,
+                                 "port": space.port})
     return _space_out(space)
 
 
@@ -173,8 +181,9 @@ def get_space(
 def update_space(
     space_id: int,
     body: SpaceUpdate,
+    request: Request,
     db: Session = Depends(get_db),
-    _: str = Depends(get_current_user),
+    username: str = Depends(get_current_user),
 ):
     space = db.query(Space).filter(Space.id == space_id).first()
     if not space:
@@ -213,21 +222,27 @@ def update_space(
         all_spaces = db.query(Space).all()
         rsyslog_svc.apply_rsyslog_config(all_spaces)
 
+    audit_svc.log_event(db, request, "space_update",
+                        username=username,
+                        details={"space_id": space.id,
+                                 "fields": sorted(body.model_fields_set)})
     return _space_out(space)
 
 
 @router.delete("/{space_id}")
 def delete_space(
     space_id: int,
+    request: Request,
     delete_logs: bool = Query(default=False),
     db: Session = Depends(get_db),
-    _: str = Depends(get_current_user),
+    username: str = Depends(get_current_user),
 ):
     space = db.query(Space).filter(Space.id == space_id).first()
     if not space:
         raise HTTPException(status_code=404, detail="Espace introuvable")
 
     port = space.port
+    name = space.name
     db.delete(space)
     db.commit()
     omada_svc.clear_client_for_space(space_id)
@@ -245,6 +260,10 @@ def delete_space(
     all_spaces = db.query(Space).all()
     rsyslog_svc.apply_rsyslog_config(all_spaces)
 
+    audit_svc.log_event(db, request, "space_delete",
+                        username=username,
+                        details={"space_id": space_id, "name": name,
+                                 "port": port, "logs_deleted": logs_deleted})
     return {"ok": True, "logs_deleted": logs_deleted}
 
 

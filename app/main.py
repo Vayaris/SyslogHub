@@ -5,10 +5,11 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
+from starlette.middleware.sessions import SessionMiddleware
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from .database import get_db, init_db
-from .auth import validate_session, create_session
+from .auth import validate_session, refresh_session_token
 from .models import Space as SpaceModel
 from .routers import auth, spaces, logs, settings
 from .utils import service_active
@@ -20,6 +21,16 @@ BASE = Path("/opt/syslog-server")
 
 app = FastAPI(title="Syslog Server", docs_url=None, redoc_url=None)
 app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="127.0.0.1")
+# Short-lived starlette session — used by Authlib to stash OIDC state/nonce
+# between /oidc/login → /oidc/callback. Not the application login session.
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=config.SECRET_KEY,
+    session_cookie="oidc_state",
+    same_site="lax",   # callback is a cross-site redirect
+    https_only=False,  # honour whatever the proxy uses
+    max_age=600,
+)
 
 # Static files
 app.mount("/static", StaticFiles(directory=str(BASE / "static")), name="static")
@@ -40,10 +51,9 @@ app.include_router(settings.router)
 async def rolling_session(request: Request, call_next):
     response = await call_next(request)
     token = request.cookies.get("session")
-    if token:
-        username = validate_session(token)
-        if username:
-            new_token = create_session(username)
+    if token and validate_session(token):
+        new_token = refresh_session_token(token)
+        if new_token:
             is_https = request.url.scheme == "https"
             response.set_cookie(
                 "session", new_token,
@@ -59,7 +69,7 @@ async def rolling_session(request: Request, call_next):
 def health():
     return JSONResponse({
         "status": "ok",
-        "version": "1.7.0",
+        "version": "1.9.0",
         "services": {
             "rsyslog": service_active("rsyslog"),
             "nginx": service_active("nginx"),
@@ -227,6 +237,8 @@ def startup():
     db: Session = next(get_db())
     try:
         from .services import rsyslog as rsyslog_svc
+        from .services import audit as audit_svc
+        from .auth import purge_stale_sessions
 
         spaces_list = db.query(SpaceModel).all()
         if spaces_list:
@@ -234,5 +246,9 @@ def startup():
                 rsyslog_svc.apply_rsyslog_config(spaces_list)
             except Exception as e:
                 log.warning(f"rsyslog config apply at startup: {e}")
+
+        # v1.9.0 — housekeeping
+        audit_svc.purge_old(db, keep_days=180)
+        purge_stale_sessions(db)
     finally:
         db.close()

@@ -110,6 +110,124 @@
     </div>
   </div>
 
+  <!-- OIDC / SSO -->
+  <div class="card">
+    <div class="card-header">
+      <h3>Authentification SSO (OIDC)</h3>
+      <span class="badge" id="oidc-status-badge">…</span>
+    </div>
+    <p class="help-text">
+      Authentification via un fournisseur externe (Authentik, Keycloak, Google Workspace…).
+      Seuls les emails correspondant à la liste blanche sont autorisés. Première
+      connexion réussie = accès admin.
+    </p>
+    <form id="oidc-form">
+      <div class="form-group">
+        <label class="checkbox-label">
+          <input type="checkbox" id="oidc-enabled">
+          Activer OIDC/SSO
+        </label>
+      </div>
+      <div class="form-group">
+        <label for="oidc-discovery">Discovery URL (.well-known/openid-configuration)</label>
+        <input type="text" id="oidc-discovery" placeholder="https://auth.example.com/.well-known/openid-configuration">
+      </div>
+      <div class="form-group">
+        <label for="oidc-client-id">Client ID</label>
+        <input type="text" id="oidc-client-id">
+      </div>
+      <div class="form-group">
+        <label for="oidc-client-secret">Client Secret</label>
+        <input type="password" id="oidc-client-secret" placeholder="••••••••">
+        <p class="help-text">Laissez vide pour conserver le secret actuel.</p>
+      </div>
+      <div class="form-group">
+        <label for="oidc-allowlist">Allowlist emails / domaines</label>
+        <input type="text" id="oidc-allowlist" placeholder="*@mycompany.com, bob@example.com">
+        <p class="help-text">Une entrée par virgule. <code>*@domaine.tld</code> autorise un domaine entier.</p>
+      </div>
+      <div class="form-group">
+        <label for="oidc-label">Libellé du bouton (optionnel)</label>
+        <input type="text" id="oidc-label" placeholder="Se connecter via SSO">
+      </div>
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Enregistrer</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Two-factor auth (TOTP) -->
+  <div class="card">
+    <div class="card-header">
+      <h3>Double authentification (2FA)</h3>
+      <span class="badge" id="totp-status-badge">…</span>
+    </div>
+    <p class="help-text">
+      Ajoutez un code à 6 chiffres généré par une application (Google Authenticator,
+      Authy, 1Password…) au moment de la connexion locale. N'affecte pas le SSO.
+    </p>
+    <div id="totp-setup" style="display:none"></div>
+    <div class="form-actions" style="display:flex;gap:8px">
+      <button type="button" class="btn btn-primary" id="totp-activate-btn" onclick="startTotpSetup()">
+        Activer la 2FA
+      </button>
+      <button type="button" class="btn btn-danger" id="totp-disable-btn" onclick="openTotpDisable()" style="display:none">
+        Désactiver
+      </button>
+    </div>
+  </div>
+
+  <!-- Active sessions -->
+  <div class="card card-wide">
+    <div class="card-header">
+      <h3>Sessions actives</h3>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-secondary btn-sm" onclick="loadSessions()">Rafraîchir</button>
+        <button class="btn btn-danger btn-sm" onclick="revokeOtherSessions()">Révoquer toutes les autres</button>
+      </div>
+    </div>
+    <p class="help-text">
+      Chaque connexion (navigateur / appareil) crée une session. Vous pouvez en révoquer une sans changer votre mot de passe.
+    </p>
+    <div id="sessions-content">
+      <div class="loading-placeholder">Chargement…</div>
+    </div>
+  </div>
+
+  <!-- Audit log -->
+  <div class="card card-wide">
+    <div class="card-header">
+      <h3>Audit</h3>
+      <button class="btn btn-secondary btn-sm" onclick="loadAudit()">Rafraîchir</button>
+    </div>
+    <div class="audit-filters" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      <select id="audit-action" onchange="loadAudit(1)">
+        <option value="">Toutes les actions</option>
+        <option value="login">login</option>
+        <option value="login_failed">login_failed</option>
+        <option value="logout">logout</option>
+        <option value="password_change">password_change</option>
+        <option value="settings_update">settings_update</option>
+        <option value="alerts_update">alerts_update</option>
+        <option value="alerts_test">alerts_test</option>
+        <option value="space_create">space_create</option>
+        <option value="space_update">space_update</option>
+        <option value="space_delete">space_delete</option>
+        <option value="source_delete">source_delete</option>
+        <option value="test_log_send">test_log_send</option>
+        <option value="audit_purge">audit_purge</option>
+      </select>
+      <input type="text" id="audit-username" placeholder="utilisateur" onchange="loadAudit(1)">
+      <p class="help-text" style="margin:0;flex:1">
+        Traces conservées 180 jours maximum.
+      </p>
+    </div>
+    <div id="audit-content">
+      <div class="loading-placeholder">Chargement…</div>
+    </div>
+    <div id="audit-pagination" style="display:flex;gap:8px;align-items:center;margin-top:12px"></div>
+  </div>
+
 </div>
 {% endblock %}
 

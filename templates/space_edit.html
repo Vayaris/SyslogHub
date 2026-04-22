@@ -145,6 +145,17 @@
       </label>
       <p class="help-text">Décochez si le contrôleur utilise un certificat auto-signé (cas habituel en local).</p>
     </div>
+    <div class="form-group">
+      <label for="omada-controller-ip">IP locale du contrôleur (optionnel)</label>
+      <input type="text" id="omada-controller-ip" maxlength="45"
+             placeholder="Ex : 172.16.0.31"
+             value="{{ space.omada_controller_ip if space and space.omada_controller_ip else '' }}">
+      <p class="help-text">
+        Si le contrôleur envoie lui-même ses logs (courant en Mode LAN),
+        cette IP sera affichée comme <em>« Contrôleur Omada »</em> dans la liste
+        des sources plutôt que comme une IP brute.
+      </p>
+    </div>
     <p class="help-text" style="margin-bottom:12px">
       Les sites et clients MSP (s'il y en a) sont découverts automatiquement —
       rien d'autre à configurer.

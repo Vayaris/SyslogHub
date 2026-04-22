@@ -80,6 +80,7 @@ def init_db():
         "ALTER TABLE spaces ADD COLUMN alert_webhook_url TEXT",
         "ALTER TABLE spaces ADD COLUMN alert_state TEXT NOT NULL DEFAULT 'ok'",
         "ALTER TABLE spaces ADD COLUMN alert_last_transition_at TEXT",
+        "ALTER TABLE spaces ADD COLUMN omada_controller_ip TEXT",
     ]
     with engine.connect() as conn:
         for stmt in _migrations:
