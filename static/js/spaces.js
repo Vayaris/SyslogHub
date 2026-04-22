@@ -100,6 +100,17 @@ document.addEventListener('click', (e) => {
 
 // ── Space edit/create form ────────────────────────────────────────────────────
 if (document.getElementById('space-form')) {
+  const _form = document.getElementById('space-form');
+  const _bar  = document.getElementById('form-actions-bar');
+  const _showBar = () => _bar && _bar.classList.add('visible');
+  // Reveal the floating bar on any change. Create mode: show after a short
+  // delay so the user sees it's there even before touching anything.
+  _form.addEventListener('input', _showBar);
+  _form.addEventListener('change', _showBar);
+  if (typeof MODE !== 'undefined' && MODE === 'create') {
+    setTimeout(_showBar, 400);
+  }
+
   document.getElementById('space-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const btn = document.getElementById('submit-btn');
