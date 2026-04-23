@@ -484,9 +484,17 @@ function toggleLive() {
   output.textContent = '[Live — en attente de nouvelles lignes…]';
   _liveSource = new EventSource(url);
   let first = true;
+  // Keep at most ~5000 lines in the viewer — a forgotten tail tab on a busy
+  // stream would otherwise grow the <pre> indefinitely and eat browser RAM.
+  const MAX_LIVE_LINES = 5000;
+  const liveBuf = [];
   _liveSource.onmessage = (e) => {
     if (first) { output.textContent = ''; first = false; }
-    output.textContent += (output.textContent ? '\n' : '') + e.data;
+    liveBuf.push(e.data);
+    if (liveBuf.length > MAX_LIVE_LINES) {
+      liveBuf.splice(0, liveBuf.length - MAX_LIVE_LINES);
+    }
+    output.textContent = liveBuf.join('\n');
     output.scrollTop = output.scrollHeight;
   };
   _liveSource.onerror = () => {

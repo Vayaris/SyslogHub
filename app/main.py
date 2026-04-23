@@ -69,7 +69,7 @@ async def rolling_session(request: Request, call_next):
 def health():
     return JSONResponse({
         "status": "ok",
-        "version": "1.9.0",
+        "version": "1.9.3",
         "services": {
             "rsyslog": service_active("rsyslog"),
             "nginx": service_active("nginx"),

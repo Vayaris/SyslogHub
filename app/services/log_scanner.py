@@ -263,13 +263,22 @@ def read_log_tail(
         is_gz = str(path).endswith(".gz")
 
         if is_gz:
+            # Stream-decompress and keep only the last N lines in a bounded
+            # deque. A rotated .gz can decompress to multiple GB — loading
+            # the full file with readlines() would OOM a small VM.
+            from collections import deque
+            keep = max(lines + offset + 1000, 5000)
+            buf: deque[str] = deque(maxlen=keep)
+            total = 0
             with gzip.open(path, "rt", encoding="utf-8", errors="replace") as f:
-                raw_lines = [l.rstrip("\n") for l in f.readlines()]
+                for line in f:
+                    buf.append(line.rstrip("\n"))
+                    total += 1
+            raw_lines = list(buf)
         else:
             raw_bytes = _tail_file(path, max_lines=max(lines + offset + 1000, 5000))
             raw_lines = [l.decode("utf-8", errors="replace") for l in raw_bytes]
-
-        total = _estimate_lines(path) if not is_gz else len(raw_lines)
+            total = _estimate_lines(path)
 
         if ap_mac_filter:
             raw_lines = [l for l in raw_lines if ap_mac_filter.lower() in l.lower()]
@@ -362,23 +371,43 @@ def files_in_date_range(port: int, ip: str,
 
 
 async def tail_stream(path: Path, max_idle_seconds: int = 900,
-                      poll_interval: float = 0.5):
+                      poll_interval: float = 0.5,
+                      burst_limit: int = 200,
+                      max_total_seconds: int = 4 * 3600):
     """Async generator that yields each new line appended to `path`.
 
-    Starts from EOF (no backfill) so callers can load history via the
-    existing /view endpoint and then switch to this stream for live updates.
-    Closes itself after `max_idle_seconds` of inactivity to avoid leaking
-    connections when a user abandons the tab without navigating away.
+    Starts from EOF (no backfill). Designed to be safe under high log rates
+    AND long-idle tabs:
+      - `burst_limit` lines per batch max, then an `await asyncio.sleep(0)`
+        yields to the event loop so Starlette can notice client disconnect
+        (otherwise the generator can pin one CPU and buffer RAM indefinitely
+        if the consumer has hung up).
+      - `max_idle_seconds` closes the stream when no line has been received
+        for this long (forgotten tabs, laptop suspend, etc.).
+      - `max_total_seconds` is an absolute cap — even a lively stream is
+        closed after 4 h to force clients to reconnect; prevents descriptor
+        leaks when a browser reconnects silently on its own.
     """
     loop = asyncio.get_event_loop()
-    last_activity = loop.time()
+    start = loop.time()
+    last_activity = start
     with open(path, "r", errors="replace") as f:
         f.seek(0, 2)  # start at EOF
         while True:
+            if loop.time() - start > max_total_seconds:
+                return
             line = f.readline()
             if line:
                 last_activity = loop.time()
                 yield line.rstrip("\n")
+                # Every `burst_limit` lines, surrender control to the loop so
+                # disconnect detection and cancellation can fire even under a
+                # torrent of incoming lines.
+                if burst_limit > 0:
+                    burst_limit -= 1
+                    if burst_limit == 0:
+                        await asyncio.sleep(0)
+                        burst_limit = 200
             else:
                 if loop.time() - last_activity > max_idle_seconds:
                     return

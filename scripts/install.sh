@@ -344,6 +344,13 @@ RestartSec=5s
 StartLimitInterval=60s
 StartLimitBurst=3
 
+# Safety belt: cap resident memory so that any future leak kills *this*
+# service (auto-restarted below) rather than freezing the whole VM via
+# the kernel OOM killer. Tuned for a 2 GB host; raise for bigger boxes.
+MemoryHigh=512M
+MemoryMax=768M
+TasksMax=256
+
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=full

@@ -1,9 +1,9 @@
-import io
 import ipaddress
 import logging
 import re
 import socket
 import subprocess
+import tempfile
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -352,6 +352,7 @@ def view_merged_log(
 async def stream_log(
     space_id: int,
     ip: str,
+    request: Request,
     filename: str = Query(...),
     db: Session = Depends(get_db),
     _: str = Depends(get_current_user),
@@ -360,7 +361,16 @@ async def stream_log(
     path = _validate_log_path(space.port, ip, filename)
 
     async def event_generator():
+        lines_since_check = 0
         async for line in log_scanner.tail_stream(path):
+            # Short-circuit if the client went away (closed tab, network drop).
+            # Without this check a live tail on a busy file can buffer lines in
+            # server RAM until the TCP send buffer unjams or the app OOMs.
+            lines_since_check += 1
+            if lines_since_check >= 50:
+                lines_since_check = 0
+                if await request.is_disconnected():
+                    return
             yield f"data: {line}\n\n"
 
     return StreamingResponse(
@@ -377,6 +387,7 @@ async def stream_log(
 @router.get("/{space_id}/merged/stream")
 async def stream_merged_log(
     space_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     _: str = Depends(get_current_user),
 ):
@@ -388,7 +399,13 @@ async def stream_merged_log(
         raise HTTPException(status_code=404, detail="Aucun log reçu pour l'instant")
 
     async def event_generator():
+        lines_since_check = 0
         async for line in log_scanner.tail_stream(path):
+            lines_since_check += 1
+            if lines_since_check >= 50:
+                lines_since_check = 0
+                if await request.is_disconnected():
+                    return
             yield f"data: {line}\n\n"
 
     return StreamingResponse(
@@ -444,15 +461,23 @@ def download_source_zip(
     if not files:
         raise HTTPException(status_code=404, detail="Aucun fichier pour cette source")
 
-    buf = io.BytesIO()
+    # Spool to /tmp once we exceed 16 MB so a multi-GB archive never sits in RAM.
+    buf = tempfile.SpooledTemporaryFile(max_size=16 * 1024 * 1024)
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for f in files:
             zf.write(f, f.name)
     buf.seek(0)
 
+    def streamer():
+        try:
+            while chunk := buf.read(65536):
+                yield chunk
+        finally:
+            buf.close()
+
     safe_ip = ip.replace(":", "-")
     return StreamingResponse(
-        buf,
+        streamer(),
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{safe_ip}-logs.zip"'},
     )
@@ -512,16 +537,24 @@ def download_space_zip(
     if not log_dir.exists():
         raise HTTPException(status_code=404, detail="Aucun log pour cet espace")
 
-    buf = io.BytesIO()
+    # Spool to /tmp once we exceed 16 MB so a multi-GB archive never sits in RAM.
+    buf = tempfile.SpooledTemporaryFile(max_size=16 * 1024 * 1024)
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for f in log_dir.rglob("*"):
             if f.is_file():
                 zf.write(f, f.relative_to(log_dir))
     buf.seek(0)
 
+    def streamer():
+        try:
+            while chunk := buf.read(65536):
+                yield chunk
+        finally:
+            buf.close()
+
     safe_name = space.name.replace(" ", "_").lower()
     return StreamingResponse(
-        buf,
+        streamer(),
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{safe_name}-port{space.port}.zip"'},
     )

@@ -11,7 +11,9 @@ RFC1918 / link-local / loopback addresses are skipped.
 import ipaddress
 import logging
 import socket
+import threading
 import time
+from collections import OrderedDict
 from pathlib import Path
 from typing import Optional
 
@@ -22,9 +24,12 @@ MMDB_PATH = Path("/opt/syslog-server/data/dbip-country-lite.mmdb")
 _reader = None
 _reader_failed = False
 
-# ip -> (name_or_None, inserted_at_epoch_seconds)
-_rdns_cache: dict[str, tuple[Optional[str], float]] = {}
+# ip -> (name_or_None, inserted_at_epoch_seconds). Bounded LRU — UDP syslog
+# sources are spoofable, so an unbounded dict is an open memory-growth vector.
+_RDNS_MAX = 2000
 _RDNS_TTL = 3600.0  # 1 h
+_rdns_cache: "OrderedDict[str, tuple[Optional[str], float]]" = OrderedDict()
+_rdns_lock = threading.Lock()
 
 
 def _get_reader():
@@ -75,30 +80,50 @@ def country(ip: str) -> Optional[str]:
     return c.get("iso_code") or None
 
 
+_rdns_default_timeout_set = False
+
+
+def _ensure_default_timeout(timeout: float) -> None:
+    """Set the process-wide default socket timeout exactly once, so every
+    blocking name-resolution call has a bounded wall time. Previously we
+    toggled the global around each call — which races in the threadpool and
+    can leave other threads with the wrong timeout (or no timeout at all)."""
+    global _rdns_default_timeout_set
+    if _rdns_default_timeout_set:
+        return
+    with _rdns_lock:
+        if _rdns_default_timeout_set:
+            return
+        if socket.getdefaulttimeout() is None:
+            socket.setdefaulttimeout(timeout)
+        _rdns_default_timeout_set = True
+
+
 def rdns(ip: str, timeout: float = 0.5) -> Optional[str]:
-    """Reverse DNS for a public IP, with a 1-hour in-memory cache.
+    """Reverse DNS for a public IP, with a 1-hour bounded-LRU cache.
 
     Returns None on private IPs, lookup failure, or timeout."""
     if not _is_public(ip):
         return None
 
     now = time.time()
-    cached = _rdns_cache.get(ip)
-    if cached and (now - cached[1]) < _RDNS_TTL:
-        return cached[0]
+    with _rdns_lock:
+        cached = _rdns_cache.get(ip)
+        if cached and (now - cached[1]) < _RDNS_TTL:
+            _rdns_cache.move_to_end(ip)
+            return cached[0]
 
-    # Temporarily lower the default socket timeout just for this call. The
-    # stdlib doesn't expose a per-call timeout on gethostbyaddr.
-    prev = socket.getdefaulttimeout()
+    _ensure_default_timeout(timeout)
     try:
-        socket.setdefaulttimeout(timeout)
         host, _, _ = socket.gethostbyaddr(ip)
     except (socket.herror, socket.gaierror, socket.timeout, OSError):
         host = None
     except Exception:
         host = None
-    finally:
-        socket.setdefaulttimeout(prev)
 
-    _rdns_cache[ip] = (host, now)
+    with _rdns_lock:
+        _rdns_cache[ip] = (host, now)
+        _rdns_cache.move_to_end(ip)
+        while len(_rdns_cache) > _RDNS_MAX:
+            _rdns_cache.popitem(last=False)
     return host
