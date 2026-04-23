@@ -261,11 +261,17 @@ def get_client_for_space(space) -> OmadaClient | None:
         cached = _clients.get(space.id)
         if cached is not None and getattr(cached, "_fp", None) == fp:
             return cached
+        # v1.10.0 — decrypt the Fernet-wrapped secret before handing it to
+        # `requests`. Legacy plaintext secrets pass through unchanged.
+        from . import crypto as _crypto
+        decoded_secret = _crypto.decrypt(space.omada_client_secret)
+        if not decoded_secret:
+            return None
         client = OmadaClient(
             base_url=space.omada_base_url,
             omada_id=space.omada_id,
             client_id=space.omada_client_id,
-            client_secret=space.omada_client_secret,
+            client_secret=decoded_secret,
             verify_ssl=bool(space.omada_verify_ssl),
         )
         client._fp = fp

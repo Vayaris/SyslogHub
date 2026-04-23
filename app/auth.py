@@ -45,6 +45,37 @@ def get_admin_totp_secret() -> str | None:
         db.close()
 
 
+def get_admin_totp_last_counter() -> int:
+    """Return the last TOTP counter value the admin successfully consumed,
+    or 0 if unset. Used by verify_and_advance to block replay."""
+    db = SessionLocal()
+    try:
+        row = db.query(Setting).filter(
+            Setting.key == "admin_totp_last_counter"
+        ).first()
+        try:
+            return int(row.value) if row else 0
+        except (TypeError, ValueError):
+            return 0
+    finally:
+        db.close()
+
+
+def set_admin_totp_last_counter(counter: int) -> None:
+    db = SessionLocal()
+    try:
+        row = db.query(Setting).filter(
+            Setting.key == "admin_totp_last_counter"
+        ).first()
+        if row:
+            row.value = str(counter)
+        else:
+            db.add(Setting(key="admin_totp_last_counter", value=str(counter)))
+        db.commit()
+    finally:
+        db.close()
+
+
 # ── Two-step login: tx_id signed tokens (2-min TTL) ───────────────────────────
 
 TOTP_TX_MAX_AGE = 120  # seconds — window to enter the 6-digit code

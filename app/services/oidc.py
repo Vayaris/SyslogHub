@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from ..database import SessionLocal
 from ..models import Setting
+from . import crypto as _crypto
 
 log = logging.getLogger("syslog-server")
 
@@ -52,6 +53,21 @@ def is_enabled() -> bool:
         db.close()
 
 
+def require_verified_email() -> bool:
+    """v1.10.0 — default-true toggle. When true, the callback rejects
+    users whose IdP doesn't set `email_verified=true`. Admin can disable
+    it when the IdP simply doesn't emit the claim."""
+    db = SessionLocal()
+    try:
+        row = db.query(Setting).filter(
+            Setting.key == "oidc_require_verified_email"
+        ).first()
+        # Default: require verification. Explicit "false" opts out.
+        return (row.value if row else "true") != "false"
+    finally:
+        db.close()
+
+
 def button_label() -> str:
     db = SessionLocal()
     try:
@@ -77,11 +93,14 @@ def get_oauth() -> Optional[OAuth]:
             and cfg.get("oidc_client_secret")):
         return None
 
+    secret = _crypto.decrypt(cfg["oidc_client_secret"])
+    if not secret:
+        return None
     oauth = OAuth()
     oauth.register(
         name=OIDC_CLIENT_NAME,
         client_id=cfg["oidc_client_id"],
-        client_secret=cfg["oidc_client_secret"],
+        client_secret=secret,
         server_metadata_url=cfg["oidc_discovery_url"],
         client_kwargs={"scope": "openid email profile"},
     )

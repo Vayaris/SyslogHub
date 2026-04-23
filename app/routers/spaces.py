@@ -10,6 +10,25 @@ from ..services import rsyslog as rsyslog_svc
 from ..services import log_scanner
 from ..services import omada as omada_svc
 from ..services import audit as audit_svc
+from ..services import crypto as crypto_svc
+from ..services import url_guard
+
+
+def _check_omada_url(body) -> None:
+    """Reject Omada URLs pointing at cloud metadata, loopback, or link-local
+    ranges. LAN-private IPs are allowed (a typical Omada controller lives on
+    10.x or 172.16.x) but never cloud-metadata or localhost."""
+    if "omada_base_url" not in body.model_fields_set:
+        return
+    val = (body.omada_base_url or "").strip()
+    if not val:
+        return
+    ok, reason = url_guard.validate_url(val, allow_private=True)
+    if not ok:
+        raise HTTPException(
+            status_code=400,
+            detail=f"URL du contrôleur Omada refusée : {reason}",
+        )
 
 router = APIRouter(prefix="/api/spaces", tags=["spaces"])
 
@@ -90,12 +109,14 @@ def _apply_omada_fields(space: Space, body, is_create: bool):
                 setattr(space, col, new_val)
                 changed = True
 
-    # Secret — only overwrite when a non-empty value is provided
+    # Secret — only overwrite when a non-empty value is provided.
+    # v1.10.0: stored encrypted at rest (Fernet).
     if is_create or "omada_client_secret" in fields_set:
         sec = body.omada_client_secret
         if sec:  # non-empty → overwrite
-            if space.omada_client_secret != sec:
-                space.omada_client_secret = sec
+            wrapped = crypto_svc.encrypt(sec)
+            if space.omada_client_secret != wrapped:
+                space.omada_client_secret = wrapped
                 changed = True
         elif is_create:
             space.omada_client_secret = None
@@ -129,6 +150,8 @@ def create_space(
     existing = db.query(Space).filter(Space.port == body.port).first()
     if existing:
         raise HTTPException(status_code=409, detail=f"Port {body.port} déjà utilisé")
+
+    _check_omada_url(body)
 
     now = datetime.now(timezone.utc).isoformat()
     space = Space(
@@ -188,6 +211,8 @@ def update_space(
     space = db.query(Space).filter(Space.id == space_id).first()
     if not space:
         raise HTTPException(status_code=404, detail="Espace introuvable")
+
+    _check_omada_url(body)
 
     reload_needed = False
 

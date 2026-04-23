@@ -15,6 +15,12 @@ async function loadSettings() {
     const settings = await api('GET', '/settings');
     document.getElementById('retention-days').value = settings.retention_days;
     document.getElementById('admin-username').value = settings.admin_username;
+    // v1.10.0 — show a blocking banner when the admin still runs the seeded
+    // default password. The backend also 403s every non-settings API route.
+    const banner = document.getElementById('password-must-change-banner');
+    if (banner) {
+      banner.style.display = settings.password_must_change ? 'block' : 'none';
+    }
   } catch (err) {
     showToast(err.message, 'error');
   }
@@ -131,6 +137,8 @@ async function loadOidcConfig() {
     document.getElementById('oidc-client-id').value = cfg.client_id || '';
     document.getElementById('oidc-allowlist').value = cfg.allowlist || '';
     document.getElementById('oidc-label').value = cfg.button_label || '';
+    const reqVerified = document.getElementById('oidc-require-verified');
+    if (reqVerified) reqVerified.checked = cfg.require_verified_email !== false;
     const secret = document.getElementById('oidc-client-secret');
     secret.placeholder = cfg.client_secret_set ? '•••••••• (configuré)' : '••••••••';
     if (cfg.enabled) {
@@ -153,6 +161,7 @@ document.getElementById('oidc-form').addEventListener('submit', async (e) => {
     client_id: document.getElementById('oidc-client-id').value.trim(),
     allowlist: document.getElementById('oidc-allowlist').value.trim(),
     button_label: document.getElementById('oidc-label').value.trim(),
+    require_verified_email: document.getElementById('oidc-require-verified').checked,
   };
   const secret = document.getElementById('oidc-client-secret').value;
   if (secret) body.client_secret = secret;

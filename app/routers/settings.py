@@ -21,7 +21,9 @@ from ..schemas import (
 )
 from ..services import alerts as alerts_svc
 from ..services import audit as audit_svc
+from ..services import crypto as crypto_svc
 from ..services import totp as totp_svc
+from ..services import url_guard
 from ..services.log_scanner import total_log_size, volume_by_day
 from ..utils import service_active
 from .. import config
@@ -51,6 +53,7 @@ def get_settings(
     return SettingsOut(
         retention_days=int(_get_setting(db, "retention_days") or "90"),
         admin_username=_get_setting(db, "admin_username") or "admin",
+        password_must_change=(_get_setting(db, "admin_password_must_change") == "true"),
     )
 
 
@@ -87,6 +90,8 @@ def update_settings(
         _set_setting(db, "admin_password_hash", hash_password(body.new_password))
         # Rotate session secret so all existing sessions (this browser + others) are invalidated
         _set_setting(db, "session_secret", secrets.token_hex(32))
+        # Clear the "must change default password" flag set at install time.
+        _set_setting(db, "admin_password_must_change", "false")
         audit_svc.log_event(db, request, "password_change", username=username)
 
     if changed:
@@ -168,9 +173,11 @@ def update_alerts_config(
             _set_setting(db, key, (getattr(body, bf) or "").strip())
     if "smtp_port" in fields and body.smtp_port is not None:
         _set_setting(db, "smtp_port", str(body.smtp_port))
-    # Password: empty/None = keep; value = overwrite
+    # Password: empty/None = keep; value = overwrite. Encrypted at rest
+    # (v1.10.0). Legacy plaintext rows are transparently rewrapped by the
+    # startup migration.
     if "smtp_password" in fields and body.smtp_password:
-        _set_setting(db, "smtp_password", body.smtp_password)
+        _set_setting(db, "smtp_password", crypto_svc.encrypt(body.smtp_password))
     audit_svc.log_event(db, request, "alerts_update",
                         username=username, details={"fields": sorted(fields)})
     return {"ok": True}
@@ -331,6 +338,9 @@ def get_oidc_config(
         allowlist=_get_setting(db, "oidc_allowlist") or None,
         button_label=_get_setting(db, "oidc_button_label") or None,
         client_secret_set=bool(_get_setting(db, "oidc_client_secret")),
+        require_verified_email=(
+            (_get_setting(db, "oidc_require_verified_email") or "true") != "false"
+        ),
     )
 
 
@@ -342,6 +352,18 @@ def update_oidc_config(
     username: str = Depends(get_current_user),
 ):
     fields = body.model_fields_set
+
+    # v1.10.0 — refuse non-HTTPS or private-IP discovery URLs. An attacker
+    # who gained an admin session must not be able to redirect OIDC flow to
+    # a controlled endpoint.
+    if "discovery_url" in fields and body.discovery_url:
+        ok, reason = url_guard.validate_url(body.discovery_url.strip(), allow_private=False)
+        if not ok:
+            raise HTTPException(
+                status_code=400,
+                detail=f"URL de découverte OIDC refusée : {reason}",
+            )
+
     if "enabled" in fields:
         _set_setting(db, "oidc_enabled", "true" if body.enabled else "false")
     text_map = {
@@ -353,9 +375,12 @@ def update_oidc_config(
     for bf, key in text_map.items():
         if bf in fields:
             _set_setting(db, key, (getattr(body, bf) or "").strip())
-    # Secret: empty/None = keep; non-empty = overwrite
+    if "require_verified_email" in fields:
+        _set_setting(db, "oidc_require_verified_email",
+                     "true" if body.require_verified_email else "false")
+    # Secret: empty/None = keep; non-empty = overwrite. Encrypted at rest.
     if "client_secret" in fields and body.client_secret:
-        _set_setting(db, "oidc_client_secret", body.client_secret)
+        _set_setting(db, "oidc_client_secret", crypto_svc.encrypt(body.client_secret))
     audit_svc.log_event(db, request, "oidc_config_update",
                         username=username,
                         details={"fields": sorted(fields)})

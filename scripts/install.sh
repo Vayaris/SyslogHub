@@ -120,8 +120,25 @@ chown -R syslog:adm "$LOG_DIR" 2>/dev/null || chown -R root:root "$LOG_DIR"
 chmod 755 "$LOG_DIR"
 chown -R root:root "$APP_DIR"
 chmod 750 "$APP_DIR/data"
-[[ -f "$APP_DIR/data/syslog-server.db" ]] && chmod 640 "$APP_DIR/data/syslog-server.db"
+# DB contains the admin bcrypt hash + (as of v1.10.0) encrypted integration
+# secrets. Lock it to root-only.
+[[ -f "$APP_DIR/data/syslog-server.db" ]] && chmod 600 "$APP_DIR/data/syslog-server.db"
+if [[ -d "$APP_DIR/data/backups" ]]; then
+    chmod 700 "$APP_DIR/data/backups"
+    chmod 600 "$APP_DIR/data/backups/"*.db 2>/dev/null || true
+    chmod 600 "$APP_DIR/data/backups/"*.db.enc 2>/dev/null || true
+fi
 chmod 600 "$ENV_FILE"
+
+# v1.10.0 — Fernet master key for at-rest encryption of SMTP/OIDC/Omada
+# secrets. Auto-created on first app start if missing, but we seed it here
+# so it's backed up with the config directory from day one.
+SECRETS_KEY="$APP_DIR/config/secrets.key"
+if [[ ! -f "$SECRETS_KEY" ]]; then
+    umask 0377
+    "$APP_DIR/venv/bin/python3" -c "from cryptography.fernet import Fernet; import sys; sys.stdout.buffer.write(Fernet.generate_key() + b'\n')" > "$SECRETS_KEY"
+    chmod 400 "$SECRETS_KEY"
+fi
 success "Permissions appliquées"
 
 # ── ÉTAPE 8 : Certificat TLS auto-signé ──────────────────────────────────────
@@ -205,8 +222,10 @@ server {
         access_log off;
     }
 
-    # Rate-limiting sur le login
-    location /api/auth/login {
+    # Rate-limiting sur toutes les routes de login (v1.10.0 — élargi au
+    # second facteur TOTP et au bouton OIDC, qui n'étaient pas couverts
+    # par le match exact précédent /api/auth/login).
+    location ~ ^/api/auth/(login|login/totp|oidc/login)$ {
         limit_req zone=login_zone burst=3 nodelay;
         proxy_pass http://127.0.0.1:8000;
         proxy_set_header Host $host;
@@ -350,6 +369,26 @@ StartLimitBurst=3
 MemoryHigh=512M
 MemoryMax=768M
 TasksMax=256
+
+# v1.10.0 — sandbox hardening. SystemCallFilter intentionally omitted
+# because it breaks the `systemctl restart rsyslog` subprocess call used
+# when an admin edits a space (see app/services/rsyslog.py).
+CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_FOWNER CAP_KILL CAP_NET_BIND_SERVICE CAP_SETUID CAP_SETGID
+AmbientCapabilities=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+ProtectHostname=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+PrivateDevices=yes
+SystemCallArchitectures=native
+UMask=0077
 
 NoNewPrivileges=yes
 PrivateTmp=yes

@@ -23,8 +23,14 @@ _SMTP_KEYS = [
 
 
 def get_settings(db: Session) -> dict:
+    from . import crypto as _crypto
     rows = db.query(Setting).filter(Setting.key.in_(_SMTP_KEYS)).all()
-    return {r.key: r.value for r in rows}
+    out = {r.key: r.value for r in rows}
+    # v1.10.0 — smtp_password is Fernet-wrapped at rest. Legacy cleartext
+    # rows still work (decrypt() passes them through).
+    if "smtp_password" in out:
+        out["smtp_password"] = _crypto.decrypt(out["smtp_password"])
+    return out
 
 
 def _latest_log_mtime(port: int) -> float | None:

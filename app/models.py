@@ -69,3 +69,17 @@ class ActiveSession(Base):
     ip           = Column(String(45), nullable=True)
     user_agent   = Column(String(255), nullable=True)
     revoked      = Column(Boolean, nullable=False, default=False)
+
+
+class LoginAttempt(Base):
+    """v1.10.0 — records every login-adjacent auth event (password check,
+    TOTP step, password-confirm-for-sensitive-action) for application-level
+    brute-force lockout by username. Nginx already rate-limits by IP, but
+    an attacker on a botnet trivially side-steps IP limits."""
+    __tablename__ = "login_attempts"
+
+    id       = Column(Integer, primary_key=True, autoincrement=True)
+    username = Column(String(100), nullable=False, index=True)
+    ip       = Column(String(45), nullable=True)
+    ts       = Column(String(32), nullable=False, index=True)
+    success  = Column(Boolean, nullable=False, default=False)

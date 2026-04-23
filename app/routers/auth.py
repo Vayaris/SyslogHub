@@ -4,14 +4,40 @@ from sqlalchemy.orm import Session
 
 from ..auth import (
     authenticate_user, create_session, extract_session_id,
-    get_admin_totp_secret, get_current_user, make_totp_tx,
-    revoke_session, totp_enabled, verify_totp_tx,
+    get_admin_totp_secret, get_admin_totp_last_counter,
+    get_current_user, make_totp_tx,
+    revoke_session, set_admin_totp_last_counter,
+    totp_enabled, verify_totp_tx,
 )
 from ..database import get_db
 from ..schemas import LoginRequest, TOTPLoginRequest
 from ..services import audit as audit_svc
 from ..services import oidc as oidc_svc
+from ..services import ratelimit as ratelimit_svc
 from ..services import totp as totp_svc
+
+
+def _client_ip(request: Request) -> str | None:
+    xri = request.headers.get("x-real-ip") or request.headers.get("x-forwarded-for")
+    if xri:
+        return xri.split(",")[0].strip()
+    return request.client.host if request.client else None
+
+
+def _ensure_not_locked(db: Session, request: Request, username: str) -> None:
+    """Raise 429 if the account is currently locked. Logs the block in the
+    audit trail so admins can see lockouts in /settings → Audit."""
+    locked, retry_after = ratelimit_svc.is_locked(db, username)
+    if not locked:
+        return
+    audit_svc.log_event(db, request, "login_locked",
+                        username=username,
+                        details={"retry_after_seconds": retry_after})
+    raise HTTPException(
+        status_code=429,
+        detail=f"Trop de tentatives échouées. Réessayez dans {retry_after} s.",
+        headers={"Retry-After": str(retry_after)},
+    )
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -36,7 +62,11 @@ def login(
     response: Response,
     db: Session = Depends(get_db),
 ):
+    _ensure_not_locked(db, request, body.username)
+    ip = _client_ip(request)
+
     if not authenticate_user(body.username, body.password):
+        ratelimit_svc.record_attempt(db, body.username, ip, success=False)
         audit_svc.log_event(db, request, "login_failed",
                             username=body.username,
                             details={"reason": "bad_credentials"})
@@ -44,6 +74,8 @@ def login(
 
     # If 2FA is active, issue a short-lived tx_id instead of a session cookie;
     # the client must POST /login/totp with a valid code to finish login.
+    # Note: we do NOT reset the lockout counter yet — the password step alone
+    # is not a full success until the TOTP step also passes.
     if totp_enabled():
         audit_svc.log_event(db, request, "login_totp_challenge",
                             username=body.username)
@@ -53,6 +85,7 @@ def login(
             "tx_id": make_totp_tx(body.username),
         }
 
+    ratelimit_svc.record_attempt(db, body.username, ip, success=True)
     token, session_id = create_session(body.username, request)
     _set_session_cookie(response, request, token)
     audit_svc.log_event(db, request, "login",
@@ -75,13 +108,27 @@ def login_totp(
         raise HTTPException(status_code=401,
                             detail="Session d'authentification expirée, veuillez recommencer")
 
+    _ensure_not_locked(db, request, username)
+    ip = _client_ip(request)
+
     secret = get_admin_totp_secret()
-    if not secret or not totp_svc.verify(secret, body.code):
+    matched_counter = totp_svc.verify_and_advance(
+        secret or "", body.code, get_admin_totp_last_counter()
+    )
+    if matched_counter is None:
+        ratelimit_svc.record_attempt(db, username, ip, success=False)
+        # Distinguish "bad code" from "replay" for the audit log — but still
+        # return the same 401 to the client so an attacker can't probe the
+        # counter state.
+        replay = bool(secret and totp_svc.verify(secret, body.code))
         audit_svc.log_event(db, request, "login_totp_failed",
                             username=username,
-                            details={"reason": "bad_code"})
+                            details={"reason": "replay" if replay else "bad_code"})
         raise HTTPException(status_code=401, detail="Code 2FA invalide")
 
+    # Burn the counter so the same code can't be reused within its window.
+    set_admin_totp_last_counter(matched_counter)
+    ratelimit_svc.record_attempt(db, username, ip, success=True)
     token, session_id = create_session(username, request)
     _set_session_cookie(response, request, token)
     audit_svc.log_event(db, request, "login",
@@ -167,6 +214,17 @@ async def oidc_callback(
         audit_svc.log_event(db, request, "login_failed",
                             details={"via": "oidc", "reason": "not_allowlisted",
                                      "email": email or None})
+        return RedirectResponse(url="/login?error=oidc_denied", status_code=302)
+
+    # v1.10.0 — refuse unverified emails by default. A laxist IdP that lets
+    # users register with any address they don't control would otherwise
+    # bypass the allowlist. The admin can relax this via a setting if their
+    # IdP simply doesn't emit the claim.
+    require_verified = oidc_svc.require_verified_email()
+    if require_verified and not userinfo.get("email_verified", False):
+        audit_svc.log_event(db, request, "login_failed",
+                            details={"via": "oidc", "reason": "email_unverified",
+                                     "email": email})
         return RedirectResponse(url="/login?error=oidc_denied", status_code=302)
 
     # Use the email as the app username (we're a single-admin app, but the

@@ -8,9 +8,9 @@ from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
-from .database import get_db, init_db
+from .database import get_db, init_db, SessionLocal
 from .auth import validate_session, refresh_session_token
-from .models import Space as SpaceModel
+from .models import Setting, Space as SpaceModel
 from .routers import auth, spaces, logs, settings
 from .utils import service_active
 from . import config
@@ -63,13 +63,72 @@ async def rolling_session(request: Request, call_next):
     return response
 
 
+# ── Force password change middleware ─────────────────────────────────────────
+# When the admin is still using the default `changeme` password seeded at
+# install time, block every authenticated request except those needed to
+# change it. The flag is only set for local `admin` logins; OIDC users
+# never trip it.
+
+_FORCE_CHANGE_ALLOWED_PREFIXES = (
+    "/static/",
+    "/api/auth/",         # login, logout, totp, oidc callback
+    "/api/settings",      # GET current state + PUT new password
+    "/login",
+    "/health",
+    "/favicon.ico",
+)
+_FORCE_CHANGE_ALLOWED_EXACT = {"/settings", "/logout", "/"}
+
+
+def _password_must_change(username: str) -> bool:
+    if not username:
+        return False
+    db = SessionLocal()
+    try:
+        flag = db.query(Setting).filter(
+            Setting.key == "admin_password_must_change"
+        ).first()
+        if not flag or flag.value != "true":
+            return False
+        # Only applies to the local `admin` account, not to OIDC users whose
+        # username is their email.
+        admin_row = db.query(Setting).filter(
+            Setting.key == "admin_username"
+        ).first()
+        admin_name = admin_row.value if admin_row else "admin"
+        return username == admin_name
+    finally:
+        db.close()
+
+
+@app.middleware("http")
+async def force_password_change(request: Request, call_next):
+    path = request.url.path
+    if path in _FORCE_CHANGE_ALLOWED_EXACT or any(
+        path.startswith(p) for p in _FORCE_CHANGE_ALLOWED_PREFIXES
+    ):
+        return await call_next(request)
+
+    token = request.cookies.get("session")
+    username = validate_session(token) if token else None
+    if username and _password_must_change(username):
+        if path.startswith("/api/"):
+            return JSONResponse(
+                {"error": "password_change_required",
+                 "detail": "Définissez un mot de passe avant d'utiliser l'application."},
+                status_code=403,
+            )
+        return RedirectResponse(url="/settings?force_password=1", status_code=302)
+    return await call_next(request)
+
+
 # ── Public endpoints ──────────────────────────────────────────────────────────
 
 @app.get("/health")
 def health():
     return JSONResponse({
         "status": "ok",
-        "version": "1.9.3",
+        "version": "1.10.0",
         "services": {
             "rsyslog": service_active("rsyslog"),
             "nginx": service_active("nginx"),
@@ -250,5 +309,17 @@ def startup():
         # v1.9.0 — housekeeping
         audit_svc.purge_old(db, keep_days=180)
         purge_stale_sessions(db)
+
+        # v1.10.0 — drop brute-force attempt rows older than a week.
+        from .services import ratelimit as ratelimit_svc
+        ratelimit_svc.purge_old(db, keep_days=7)
+
+        # v1.10.0 — re-encrypt any remaining plaintext secrets in the DB.
+        # Safe to run on every boot: already-wrapped values are skipped.
+        from .services import crypto as crypto_svc
+        try:
+            crypto_svc.migrate_plaintext(db)
+        except Exception as e:
+            log.warning(f"crypto.migrate_plaintext failed: {e}")
     finally:
         db.close()

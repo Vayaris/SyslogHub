@@ -112,6 +112,7 @@ class LoginRequest(BaseModel):
 class SettingsOut(BaseModel):
     retention_days: int
     admin_username: str
+    password_must_change: bool = False
 
 
 class SettingsUpdate(BaseModel):
@@ -264,6 +265,7 @@ class OIDCConfigOut(BaseModel):
     allowlist: Optional[str] = None
     button_label: Optional[str] = None
     client_secret_set: bool = False
+    require_verified_email: bool = True
 
 
 class OIDCConfigUpdate(BaseModel):
@@ -273,5 +275,6 @@ class OIDCConfigUpdate(BaseModel):
     client_secret: Optional[str] = None  # empty/None = keep
     allowlist: Optional[str] = None
     button_label: Optional[str] = None
+    require_verified_email: Optional[bool] = None
 
 

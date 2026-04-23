@@ -1,3 +1,4 @@
+import os
 import secrets
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import declarative_base, sessionmaker
@@ -101,10 +102,21 @@ def init_db():
             "admin_password_hash": bcrypt.hashpw(b"changeme", bcrypt.gensalt()).decode(),
             "session_secret": secrets.token_hex(32),
         }
+        seeded_default_password = False
         for key, value in defaults.items():
             existing = db.query(Setting).filter(Setting.key == key).first()
             if not existing:
                 db.add(Setting(key=key, value=value))
+                if key == "admin_password_hash":
+                    seeded_default_password = True
+
+        # If we just seeded the default `changeme` hash, flag the account so
+        # the UI blocks everything until a real password is set. The flag is
+        # cleared in routers/settings.py::update_settings when a new password
+        # is accepted.
+        if seeded_default_password:
+            if not db.query(Setting).filter(Setting.key == "admin_password_must_change").first():
+                db.add(Setting(key="admin_password_must_change", value="true"))
 
         existing_space = db.query(Space).filter(Space.port == 514).first()
         if not existing_space:
@@ -122,3 +134,10 @@ def init_db():
         db.commit()
     finally:
         db.close()
+
+    # The DB holds the admin bcrypt hash + integration secrets. Enforce 0600
+    # on every init so a stale 0644 from an older install is corrected.
+    try:
+        os.chmod(config.DB_PATH, 0o600)
+    except OSError:
+        pass

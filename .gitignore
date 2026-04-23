@@ -12,6 +12,7 @@ build/
 
 # Application data (secrets & runtime)
 config/app.env
+config/secrets.key
 data/
 logs/
 

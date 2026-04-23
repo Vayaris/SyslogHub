@@ -9,6 +9,14 @@
   </div>
 </div>
 
+<div id="password-must-change-banner" class="alert alert-danger" style="display:none;margin-bottom:16px">
+  <strong>🔒 Mot de passe par défaut détecté</strong><br>
+  Vous utilisez le mot de passe d'installation <code>changeme</code>. Tant qu'il
+  n'est pas modifié, l'accès au reste de l'application est bloqué.
+  Rendez-vous dans <strong>Sécurité</strong> ci-dessous et définissez un nouveau
+  mot de passe.
+</div>
+
 <div class="settings-grid">
   <!-- General settings -->
   <div class="card">
@@ -149,6 +157,16 @@
       <div class="form-group">
         <label for="oidc-label">Libellé du bouton (optionnel)</label>
         <input type="text" id="oidc-label" placeholder="Se connecter via SSO">
+      </div>
+      <div class="form-group">
+        <label class="checkbox-label">
+          <input type="checkbox" id="oidc-require-verified" checked>
+          Exiger <code>email_verified</code> de l'IdP
+        </label>
+        <p class="help-text">
+          Refuse les utilisateurs dont l'IdP ne certifie pas leur adresse email.
+          Décochez uniquement si votre IdP n'émet pas ce claim (rare).
+        </p>
       </div>
       <div class="form-actions">
         <button type="submit" class="btn btn-primary">Enregistrer</button>
