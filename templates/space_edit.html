@@ -89,6 +89,96 @@
 
 <div class="card">
   <div class="card-header">
+    <h3>Conformité LCEN / RGPD</h3>
+    <span class="badge">v2.0.0</span>
+  </div>
+  <div>
+    <div class="form-group">
+      <label for="retention-days">Durée de rétention (jours)</label>
+      <select id="retention-days-preset" style="margin-bottom:8px">
+        <option value="180">180 jours (6 mois)</option>
+        <option value="365" selected>365 jours (LCEN — 1 an)</option>
+        <option value="1095">1095 jours (3 ans)</option>
+        <option value="custom">Personnalisé…</option>
+      </select>
+      <input type="number" id="retention-days" min="1" max="3650"
+             value="{{ space.retention_days if space and space.retention_days else 365 }}">
+      <p class="help-text">
+        <strong>Obligation LCEN art. 6-II</strong> pour les opérateurs WiFi public : <strong>1 an minimum</strong>.
+        <strong>RGPD art. 5-1-e</strong> : ne conservez pas au-delà du nécessaire —
+        toute durée &gt; 1 an doit être justifiée (ex : directive nationale).
+      </p>
+    </div>
+
+    <div class="form-group">
+      <label class="checkbox-label">
+        <input type="checkbox" id="chain-enabled"
+               {% if space and space.chain_enabled or mode == 'create' %}checked{% endif %}>
+        Construire la chaîne d'intégrité (hash chaîné + TSA)
+      </label>
+      <p class="help-text">
+        Build quotidien (00:05 UTC) d'un manifest signé qui prouve qu'aucun log
+        n'a été modifié depuis. Indispensable pour valeur probante en réquisition.
+      </p>
+    </div>
+
+    <div class="form-group">
+      <label class="checkbox-label">
+        <input type="checkbox" id="dhcp-parse-enabled"
+               {% if space and space.dhcp_parse_enabled %}checked{% endif %}>
+        Parser les lignes DHCP (MAC ↔ IP) pour la corrélation
+      </label>
+      <p class="help-text">
+        Sweep nocturne (00:30 UTC) qui parse les <code>DHCPACK</code> détectés dans les logs
+        entrants (ISC dhcpd, dnsmasq, Mikrotik, pfSense, Cisco IOS).
+      </p>
+    </div>
+
+    <div class="form-group">
+      <label class="checkbox-label">
+        <input type="checkbox" id="omada-sync-enabled"
+               {% if space and space.omada_sync_enabled %}checked{% endif %}>
+        Synchroniser les sessions hotspot Omada
+      </label>
+      <p class="help-text">
+        Pull toutes les 5 minutes des clients actifs via l'OpenAPI Omada.
+        Nécessite l'intégration Omada configurée ci-dessous.
+      </p>
+    </div>
+
+    {% if mode == 'edit' %}
+    <hr class="divider">
+    <div class="form-group">
+      <label>Branding de l'espace (franchise / multi-établissement)</label>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+        <div id="branding-logo-preview" style="width:48px;height:48px;border-radius:6px;background:var(--color-bg);display:flex;align-items:center;justify-content:center;overflow:hidden;border:1px solid var(--color-border)">
+          {% if space and space.branding_logo_path %}
+            <img src="{{ space.branding_logo_path }}" alt="logo" style="max-width:100%;max-height:100%">
+          {% else %}
+            <span style="font-size:11px;color:var(--color-text-muted)">—</span>
+          {% endif %}
+        </div>
+        <input type="file" id="branding-logo-file" accept="image/png,image/jpeg,image/gif">
+        <button type="button" class="btn btn-sm" onclick="uploadBrandingLogo()">Upload</button>
+        {% if space and space.branding_logo_path %}
+        <button type="button" class="btn btn-sm btn-danger" onclick="deleteBrandingLogo()">Retirer</button>
+        {% endif %}
+      </div>
+      <p class="help-text">PNG / JPEG / GIF, max 256 KB. Affiché dans les PDFs de réquisition et entête des pages de cet espace.</p>
+    </div>
+
+    <div class="form-group">
+      <label for="branding-color">Couleur primaire de l'espace (hex)</label>
+      <input type="text" id="branding-color" maxlength="16" placeholder="#3b82f6"
+             value="{{ space.branding_color if space and space.branding_color else '' }}">
+      <p class="help-text">Code couleur optionnel (ex : <code>#3b82f6</code>) utilisé pour les bandeaux de l'espace.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
     <h3>Intégration Omada</h3>
     {% if mode == 'edit' %}
       <span class="badge {{ 'badge-success' if space.omada_configured else 'badge-warning' }}" id="omada-status-badge">

@@ -11,7 +11,7 @@ from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from .database import get_db, init_db, SessionLocal
 from .auth import validate_session, refresh_session_token
 from .models import Setting, Space as SpaceModel
-from .routers import auth, spaces, logs, settings
+from .routers import auth, spaces, logs, settings, users, compliance_chain, correlation, requisitions, compliance_docs
 from .utils import service_active
 from . import config
 
@@ -34,6 +34,10 @@ app.add_middleware(
 
 # Static files
 app.mount("/static", StaticFiles(directory=str(BASE / "static")), name="static")
+# v2.0.0 — logos per space (uploadés via API)
+_BRANDING_ROOT = Path("/opt/syslog-server/data/branding")
+_BRANDING_ROOT.mkdir(parents=True, exist_ok=True)
+app.mount("/branding", StaticFiles(directory=str(_BRANDING_ROOT)), name="branding")
 
 # Templates
 templates = Jinja2Templates(directory=str(BASE / "templates"))
@@ -43,6 +47,11 @@ app.include_router(auth.router)
 app.include_router(spaces.router)
 app.include_router(logs.router)
 app.include_router(settings.router)
+app.include_router(users.router)
+app.include_router(compliance_chain.router)
+app.include_router(correlation.router)
+app.include_router(requisitions.router)
+app.include_router(compliance_docs.router)
 
 
 # ── Rolling session middleware ─────────────────────────────────────────────────
@@ -128,7 +137,7 @@ async def force_password_change(request: Request, call_next):
 def health():
     return JSONResponse({
         "status": "ok",
-        "version": "1.10.0",
+        "version": "2.0.0",
         "services": {
             "rsyslog": service_active("rsyslog"),
             "nginx": service_active("nginx"),
@@ -287,6 +296,56 @@ def settings_page(request: Request):
     return templates.TemplateResponse("settings.html", {"request": request})
 
 
+@app.get("/users", response_class=HTMLResponse)
+def users_page(request: Request):
+    redir = _require_auth(request)
+    if redir:
+        return redir
+    return templates.TemplateResponse("users.html", {"request": request})
+
+
+# ── v2.0.0 — pages conformité ────────────────────────────────────────────────
+
+@app.get("/compliance", response_class=HTMLResponse)
+def compliance_page(request: Request):
+    redir = _require_auth(request)
+    if redir:
+        return redir
+    return templates.TemplateResponse("compliance.html", {"request": request})
+
+
+@app.get("/compliance/chain", response_class=HTMLResponse)
+def compliance_chain_page(request: Request):
+    redir = _require_auth(request)
+    if redir:
+        return redir
+    return templates.TemplateResponse("compliance_chain.html", {"request": request})
+
+
+@app.get("/compliance/correlation", response_class=HTMLResponse)
+def compliance_correlation_page(request: Request):
+    redir = _require_auth(request)
+    if redir:
+        return redir
+    return templates.TemplateResponse("compliance_correlation.html", {"request": request})
+
+
+@app.get("/compliance/requisitions", response_class=HTMLResponse)
+def compliance_requisitions_page(request: Request):
+    redir = _require_auth(request)
+    if redir:
+        return redir
+    return templates.TemplateResponse("compliance_requisitions.html", {"request": request})
+
+
+@app.get("/compliance/documents", response_class=HTMLResponse)
+def compliance_documents_page(request: Request):
+    redir = _require_auth(request)
+    if redir:
+        return redir
+    return templates.TemplateResponse("compliance_documents.html", {"request": request})
+
+
 # ── Startup ───────────────────────────────────────────────────────────────────
 
 @app.on_event("startup")
@@ -323,3 +382,38 @@ def startup():
             log.warning(f"crypto.migrate_plaintext failed: {e}")
     finally:
         db.close()
+
+    # v2.0.0 — backfill rétroactif de la chaîne d'intégrité, une fois.
+    # Tourne en background pour ne pas bloquer le démarrage (peut prendre
+    # plusieurs minutes sur une install avec 365 jours de logs).
+    import threading
+    def _v2_chain_backfill():
+        from .services import chain as chain_svc
+        db2 = SessionLocal()
+        try:
+            flag = db2.query(Setting).filter(Setting.key == "v2_chain_migrated").first()
+            if flag and flag.value == "true":
+                return
+            spaces = db2.query(SpaceModel).filter(SpaceModel.chain_enabled == True).all()  # noqa: E712
+            total = 0
+            for sp in spaces:
+                try:
+                    created = chain_svc.backfill_retroactive(
+                        db2, sp, max_days=int(sp.retention_days or 365)
+                    )
+                    total += created
+                    if created:
+                        log.info(f"chain backfill: space={sp.id} {sp.name} → {created} manifests")
+                except Exception as e:
+                    log.warning(f"chain backfill space={sp.id} failed: {e}")
+            if flag:
+                flag.value = "true"
+            else:
+                db2.add(Setting(key="v2_chain_migrated", value="true"))
+            db2.commit()
+            log.info(f"v2_chain backfill terminé — {total} manifests créés au total")
+        except Exception as e:
+            log.warning(f"v2_chain backfill global failed: {e}")
+        finally:
+            db2.close()
+    threading.Thread(target=_v2_chain_backfill, daemon=True, name="v2-chain-backfill").start()

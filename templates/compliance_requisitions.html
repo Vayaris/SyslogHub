@@ -1,0 +1,292 @@
+{% extends "base.html" %}
+{% block title %}Réquisitions — Syslog Server{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>Réquisitions judiciaires</h2>
+    <p class="text-muted">Workflow LCEN — création, export chiffré, legal hold, clôture</p>
+  </div>
+  <div style="display:flex;gap:8px">
+    <a href="/compliance" class="btn btn-secondary">← Retour</a>
+    <button class="btn btn-primary" onclick="openCreateModal()">+ Nouvelle réquisition</button>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <h3>Liste</h3>
+    <select id="filter-status" onchange="loadReqs()" style="width:180px">
+      <option value="">Tous les statuts</option>
+      <option value="draft">Brouillon</option>
+      <option value="exported">Exportée</option>
+      <option value="closed">Clôturée</option>
+    </select>
+  </div>
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>N°</th><th>OPJ</th><th>Espace</th><th>Plage</th>
+          <th>Statut</th><th>Créée le</th><th></th>
+        </tr>
+      </thead>
+      <tbody id="reqs-tbody"><tr><td colspan="7" class="text-muted">Chargement…</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Modal create -->
+<div id="req-modal" class="modal-overlay" style="display:none">
+  <div class="modal" style="max-width:720px">
+    <h3>Nouvelle réquisition judiciaire</h3>
+    <form id="req-form" onsubmit="return submitReq(event)">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group">
+          <label>N° réquisition <span class="required">*</span></label>
+          <input type="text" id="r-number" required>
+        </div>
+        <div class="form-group">
+          <label>Espace</label>
+          <select id="r-space">
+            <option value="">— Tous les espaces —</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>OPJ (nom) <span class="required">*</span></label>
+          <input type="text" id="r-opj-name" required>
+        </div>
+        <div class="form-group">
+          <label>OPJ (service)</label>
+          <input type="text" id="r-opj-service">
+        </div>
+        <div class="form-group">
+          <label>OPJ (email)</label>
+          <input type="email" id="r-opj-email">
+        </div>
+        <div class="form-group">
+          <label>Notes internes</label>
+          <input type="text" id="r-notes" placeholder="Facultatif, audit uniquement">
+        </div>
+        <div class="form-group">
+          <label>Début plage (UTC) <span class="required">*</span></label>
+          <input type="datetime-local" id="r-from" required step="1">
+        </div>
+        <div class="form-group">
+          <label>Fin plage (UTC) <span class="required">*</span></label>
+          <input type="datetime-local" id="r-to" required step="1">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Justification <span class="required">*</span></label>
+        <textarea id="r-just" rows="3" required placeholder="Motif de la réquisition (sera audité)"></textarea>
+      </div>
+
+      <div id="preview-box" class="alert" style="display:none;background:var(--color-primary-light);border:1px solid #93c5fd"></div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary" onclick="closeReqModal()">Annuler</button>
+        <button type="button" class="btn" onclick="runPreview()">Aperçu</button>
+        <button type="submit" class="btn btn-primary">Créer en brouillon</button>
+        <button type="button" class="btn btn-primary" onclick="submitAndExport()">Créer &amp; exporter</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal detail -->
+<div id="detail-modal" class="modal-overlay" style="display:none">
+  <div class="modal" style="max-width:720px" id="detail-content">
+    <h3>Détail</h3>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+let _reqs = [];
+
+async function loadSpaces() {
+  const spaces = await api('GET', '/spaces');
+  const sel = document.getElementById('r-space');
+  sel.innerHTML = '<option value="">— Tous les espaces —</option>' +
+    spaces.map(s => `<option value="${s.id}">${s.name} (port ${s.port})</option>`).join('');
+}
+
+async function loadReqs() {
+  const status = document.getElementById('filter-status').value;
+  const tbody = document.getElementById('reqs-tbody');
+  tbody.innerHTML = '<tr><td colspan="7" class="text-muted">Chargement…</td></tr>';
+  try {
+    const r = await api('GET', '/compliance/requisitions' + (status ? `?status=${status}` : ''));
+    _reqs = r.items || [];
+    if (!_reqs.length) {
+      tbody.innerHTML = '<tr><td colspan="7" class="text-muted">Aucune réquisition.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = _reqs.map(r => `
+      <tr>
+        <td><strong>${escH(r.number)}</strong></td>
+        <td>${escH(r.opj_name)}${r.opj_service?` <small class="text-muted">(${escH(r.opj_service)})</small>`:''}</td>
+        <td>${escH(r.space_name || 'Tous')}</td>
+        <td><small>${fmtDate(r.time_from)}<br>→ ${fmtDate(r.time_to)}</small></td>
+        <td>${statusBadge(r.status)}</td>
+        <td>${fmtDate(r.created_at)}</td>
+        <td style="text-align:right;white-space:nowrap">
+          <button class="btn btn-sm" onclick="openDetail(${r.id})">Détail</button>
+        </td>
+      </tr>`).join('');
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="7" class="alert-danger">${e.message}</td></tr>`;
+  }
+}
+
+function statusBadge(s) {
+  if (s === 'draft')     return '<span class="badge badge-warning">Brouillon</span>';
+  if (s === 'exported')  return '<span class="badge badge-success">Exportée</span>';
+  if (s === 'closed')    return '<span class="badge">Clôturée</span>';
+  return `<span class="badge">${escH(s)}</span>`;
+}
+
+function escH(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function fmtDate(iso){ if(!iso) return '—'; try { return new Date(iso).toLocaleString('fr-FR'); } catch(e){ return iso; }}
+
+function openCreateModal() {
+  document.getElementById('r-number').value = '';
+  document.getElementById('r-opj-name').value = '';
+  document.getElementById('r-opj-service').value = '';
+  document.getElementById('r-opj-email').value = '';
+  document.getElementById('r-just').value = '';
+  document.getElementById('r-notes').value = '';
+  document.getElementById('preview-box').style.display = 'none';
+  // Default range: derniers 30 jours
+  const now = new Date();
+  const a30 = new Date(now.getTime() - 30*86400*1000);
+  const toUTC = d => d.toISOString().slice(0,16);
+  document.getElementById('r-from').value = toUTC(a30);
+  document.getElementById('r-to').value = toUTC(now);
+  document.getElementById('req-modal').style.display = 'flex';
+}
+function closeReqModal(){ document.getElementById('req-modal').style.display = 'none'; }
+
+function _readForm() {
+  return {
+    number: document.getElementById('r-number').value.trim(),
+    opj_name: document.getElementById('r-opj-name').value.trim(),
+    opj_service: document.getElementById('r-opj-service').value.trim() || null,
+    opj_email: document.getElementById('r-opj-email').value.trim() || null,
+    justification: document.getElementById('r-just').value.trim(),
+    space_id: document.getElementById('r-space').value ? parseInt(document.getElementById('r-space').value,10) : null,
+    time_from: new Date(document.getElementById('r-from').value + ':00Z').toISOString(),
+    time_to:   new Date(document.getElementById('r-to').value + ':00Z').toISOString(),
+    notes: document.getElementById('r-notes').value.trim() || null,
+  };
+}
+
+async function runPreview() {
+  try {
+    const f = _readForm();
+    const p = await api('POST', '/compliance/requisitions/preview', {
+      space_id: f.space_id, time_from: f.time_from, time_to: f.time_to,
+    });
+    const box = document.getElementById('preview-box');
+    box.style.display = '';
+    const lines = p.per_space.map(s => `<li>${escH(s.space_name)} : ${s.files} fichier(s), ${formatBytes(s.bytes)}</li>`).join('');
+    box.innerHTML = `<strong>Aperçu :</strong> ${p.files} fichier(s) total, ${formatBytes(p.bytes)}<ul style="margin:6px 0 0 18px">${lines}</ul>`;
+  } catch (e) { showToast('Erreur aperçu : ' + e.message, 'error'); }
+}
+
+async function submitReq(ev) {
+  ev && ev.preventDefault();
+  try {
+    const r = await api('POST', '/compliance/requisitions', _readForm());
+    showToast(`Réquisition #${r.id} créée en brouillon`, 'success');
+    closeReqModal();
+    await loadReqs();
+  } catch (e) {
+    showToast('Erreur : ' + e.message, 'error');
+  }
+  return false;
+}
+
+async function submitAndExport() {
+  try {
+    const r = await api('POST', '/compliance/requisitions', _readForm());
+    showToast(`Réquisition #${r.id} créée, export en cours…`, 'info');
+    const exp = await api('POST', `/compliance/requisitions/${r.id}/export`);
+    showToast(`Bundle exporté (${exp.files_count} fichiers, sha256=${exp.bundle_sha256.slice(0,12)}…)`, 'success');
+    closeReqModal();
+    await loadReqs();
+    openDetail(r.id);
+  } catch (e) {
+    showToast('Erreur : ' + e.message, 'error');
+  }
+}
+
+async function openDetail(id) {
+  const r = await api('GET', `/compliance/requisitions/${id}`);
+  const dom = document.getElementById('detail-content');
+  dom.innerHTML = `
+    <h3>Réquisition n° ${escH(r.number)}</h3>
+    <div style="display:grid;grid-template-columns:140px 1fr;gap:6px;font-size:13px;margin-bottom:10px">
+      <div class="text-muted">Statut</div><div>${statusBadge(r.status)}</div>
+      <div class="text-muted">OPJ</div><div>${escH(r.opj_name)} <small class="text-muted">${escH(r.opj_service||'')} ${escH(r.opj_email||'')}</small></div>
+      <div class="text-muted">Espace</div><div>${escH(r.space_name || 'Tous')}</div>
+      <div class="text-muted">Plage</div><div>${fmtDate(r.time_from)} → ${fmtDate(r.time_to)}</div>
+      <div class="text-muted">Créée par</div><div>${escH(r.created_by||'?')} le ${fmtDate(r.created_at)}</div>
+      ${r.exported_at ? `<div class="text-muted">Exportée le</div><div>${fmtDate(r.exported_at)}</div>` : ''}
+      ${r.bundle_sha256 ? `<div class="text-muted">Bundle SHA-256</div><div><code style="font-size:11px">${escH(r.bundle_sha256)}</code></div>` : ''}
+      ${r.bundle_size_bytes ? `<div class="text-muted">Taille</div><div>${formatBytes(r.bundle_size_bytes)}</div>` : ''}
+      ${r.closed_at ? `<div class="text-muted">Clôturée</div><div>${fmtDate(r.closed_at)}</div>` : ''}
+    </div>
+    <div class="form-group">
+      <label class="text-muted">Justification</label>
+      <div style="white-space:pre-wrap;background:var(--color-bg);padding:8px;border-radius:4px;font-size:13px">${escH(r.justification)}</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="document.getElementById('detail-modal').style.display='none'">Fermer</button>
+      ${r.status === 'draft' ? `<button class="btn btn-primary" onclick="doExport(${r.id})">Générer le bundle</button>` : ''}
+      ${r.bundle_path ? `<a class="btn btn-primary" href="/api/compliance/requisitions/${r.id}/download">Télécharger</a>` : ''}
+      ${r.status === 'exported' ? `<button class="btn" onclick="doClose(${r.id})">Clôturer</button>` : ''}
+      ${r.status === 'closed' ? `<button class="btn btn-danger" onclick="doDelete(${r.id})">Supprimer</button>` : ''}
+    </div>
+  `;
+  document.getElementById('detail-modal').style.display = 'flex';
+}
+
+async function doExport(id) {
+  try {
+    const r = await api('POST', `/compliance/requisitions/${id}/export`);
+    showToast(`Bundle exporté (${formatBytes(r.bundle_size_bytes)})`, 'success');
+    await loadReqs();
+    openDetail(id);
+  } catch (e) { showToast('Erreur : ' + e.message, 'error'); }
+}
+
+async function doClose(id) {
+  if (!confirm('Clôturer cette réquisition ? Cela désactivera le legal hold et rend les logs à nouveau purgeables.')) return;
+  try {
+    await api('POST', `/compliance/requisitions/${id}/close`);
+    showToast('Réquisition clôturée', 'success');
+    await loadReqs();
+    openDetail(id);
+  } catch (e) { showToast('Erreur : ' + e.message, 'error'); }
+}
+
+async function doDelete(id) {
+  if (!confirm('Supprimer définitivement cette réquisition et son bundle ?')) return;
+  try {
+    await api('DELETE', `/compliance/requisitions/${id}`);
+    showToast('Réquisition supprimée', 'success');
+    document.getElementById('detail-modal').style.display = 'none';
+    await loadReqs();
+  } catch (e) { showToast('Erreur : ' + e.message, 'error'); }
+}
+
+(async () => {
+  await loadSpaces();
+  await loadReqs();
+})();
+</script>
+{% endblock %}

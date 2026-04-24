@@ -25,3 +25,13 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
+
+# Claude Code — notes locales, ne pas publier
+CLAUDE.md
+.claude/
+
+# v2.0.0 — données runtime à ne pas publier
+data/branding/
+data/requisitions/
+config/tsa/
+config/

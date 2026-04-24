@@ -32,6 +32,13 @@ class SpaceOut(BaseModel):
     alert_webhook_url:     Optional[str] = None
     alert_state:           str = "ok"
     alert_last_transition_at: Optional[str] = None
+    # v2.0.0 — conformité LCEN/RGPD
+    retention_days:     int = 365
+    branding_logo_path: Optional[str] = None
+    branding_color:     Optional[str] = None
+    dhcp_parse_enabled: bool = False
+    omada_sync_enabled: bool = False
+    chain_enabled:      bool = True
     created_at: str
     updated_at: str
     stats: Optional[SpaceStats] = None
@@ -59,6 +66,12 @@ class SpaceCreate(BaseModel):
     alert_threshold_hours: Optional[int] = Field(None, ge=1, le=720)
     alert_email_to:        Optional[str] = None
     alert_webhook_url:     Optional[str] = None
+    # v2.0.0
+    retention_days:        Optional[int] = Field(None, ge=1, le=3650)
+    branding_color:        Optional[str] = Field(None, max_length=16)
+    dhcp_parse_enabled:    Optional[bool] = None
+    omada_sync_enabled:    Optional[bool] = None
+    chain_enabled:         Optional[bool] = None
 
     @field_validator("allowed_ip")
     @classmethod
@@ -91,6 +104,12 @@ class SpaceUpdate(BaseModel):
     alert_threshold_hours: Optional[int] = Field(None, ge=1, le=720)
     alert_email_to:        Optional[str] = None
     alert_webhook_url:     Optional[str] = None
+    # v2.0.0
+    retention_days:        Optional[int] = Field(None, ge=1, le=3650)
+    branding_color:        Optional[str] = Field(None, max_length=16)
+    dhcp_parse_enabled:    Optional[bool] = None
+    omada_sync_enabled:    Optional[bool] = None
+    chain_enabled:         Optional[bool] = None
 
     @field_validator("allowed_ip")
     @classmethod
@@ -276,5 +295,86 @@ class OIDCConfigUpdate(BaseModel):
     allowlist: Optional[str] = None
     button_label: Optional[str] = None
     require_verified_email: Optional[bool] = None
+
+
+# ── v2.0.0 — Users & RBAC ────────────────────────────────────────────────────
+
+class UserOut(BaseModel):
+    id: int
+    username: str
+    email: Optional[str] = None
+    role_global: str
+    disabled: bool
+    has_password: bool
+    totp_enabled: bool
+    oidc_subject: Optional[str] = None
+    created_at: str
+    last_login_at: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class UserCreate(BaseModel):
+    username: str = Field(..., min_length=1, max_length=100)
+    email: Optional[str] = Field(None, max_length=255)
+    password: Optional[str] = Field(None, min_length=8)
+    role_global: str = Field(default="operator")
+
+    @field_validator("role_global")
+    @classmethod
+    def _check_role(cls, v):
+        if v not in ("admin", "operator"):
+            raise ValueError("role_global doit être 'admin' ou 'operator'")
+        return v
+
+
+class UserUpdate(BaseModel):
+    username: Optional[str] = Field(None, min_length=1, max_length=100)
+    email: Optional[str] = Field(None, max_length=255)
+    role_global: Optional[str] = None
+    disabled: Optional[bool] = None
+    new_password: Optional[str] = Field(None, min_length=8)
+
+    @field_validator("role_global")
+    @classmethod
+    def _check_role(cls, v):
+        if v is None:
+            return v
+        if v not in ("admin", "operator"):
+            raise ValueError("role_global doit être 'admin' ou 'operator'")
+        return v
+
+
+class SpaceRoleOut(BaseModel):
+    id: int
+    user_id: int
+    space_id: int
+    space_name: Optional[str] = None
+    role: str
+    granted_at: str
+
+    class Config:
+        from_attributes = True
+
+
+class SpaceRoleUpdate(BaseModel):
+    role: str = Field(..., description="owner | operator | readonly")
+
+    @field_validator("role")
+    @classmethod
+    def _check_role(cls, v):
+        if v not in ("owner", "operator", "readonly"):
+            raise ValueError("role doit être owner, operator ou readonly")
+        return v
+
+
+class MeResponse(BaseModel):
+    username: str
+    email: Optional[str] = None
+    role_global: str
+    is_admin: bool
+    totp_enabled: bool
+    password_must_change: bool = False
 
 

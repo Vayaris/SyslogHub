@@ -1,16 +1,18 @@
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pathlib import Path
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from sqlalchemy.orm import Session
 
-from ..auth import get_current_user
+from ..auth import get_current_user_obj
 from ..database import get_db
-from ..models import Space
+from ..models import Space, User
 from ..schemas import SpaceCreate, SpaceOut, SpaceStats, SpaceUpdate
 from ..services import rsyslog as rsyslog_svc
 from ..services import log_scanner
 from ..services import omada as omada_svc
 from ..services import audit as audit_svc
 from ..services import crypto as crypto_svc
+from ..services import rbac
 from ..services import url_guard
 
 
@@ -62,6 +64,12 @@ def _space_out(space: Space, with_stats: bool = True) -> SpaceOut:
         alert_webhook_url=getattr(space, "alert_webhook_url", None) or None,
         alert_state=getattr(space, "alert_state", "ok") or "ok",
         alert_last_transition_at=getattr(space, "alert_last_transition_at", None),
+        retention_days=int(getattr(space, "retention_days", 365) or 365),
+        branding_logo_path=getattr(space, "branding_logo_path", None) or None,
+        branding_color=getattr(space, "branding_color", None) or None,
+        dhcp_parse_enabled=bool(getattr(space, "dhcp_parse_enabled", False)),
+        omada_sync_enabled=bool(getattr(space, "omada_sync_enabled", False)),
+        chain_enabled=bool(getattr(space, "chain_enabled", True)),
         created_at=space.created_at,
         updated_at=space.updated_at,
         stats=stats,
@@ -134,9 +142,9 @@ def _apply_omada_fields(space: Space, body, is_create: bool):
 @router.get("", response_model=list[SpaceOut])
 def list_spaces(
     db: Session = Depends(get_db),
-    _: str = Depends(get_current_user),
+    me: User = Depends(get_current_user_obj),
 ):
-    spaces = db.query(Space).order_by(Space.port).all()
+    spaces = rbac.accessible_spaces(db, me)
     return [_space_out(s) for s in spaces]
 
 
@@ -145,8 +153,10 @@ def create_space(
     body: SpaceCreate,
     request: Request,
     db: Session = Depends(get_db),
-    username: str = Depends(get_current_user),
+    me: User = Depends(get_current_user_obj),
 ):
+    rbac.require_admin(me)
+    username = me.username
     existing = db.query(Space).filter(Space.port == body.port).first()
     if existing:
         raise HTTPException(status_code=409, detail=f"Port {body.port} déjà utilisé")
@@ -162,6 +172,11 @@ def create_space(
         allowed_ip=body.allowed_ip,
         tcp_enabled=body.tcp_enabled,
         lan_mode=body.lan_mode,
+        retention_days     = int(body.retention_days) if body.retention_days is not None else 365,
+        branding_color     = (body.branding_color or "").strip() or None,
+        dhcp_parse_enabled = bool(body.dhcp_parse_enabled) if body.dhcp_parse_enabled is not None else False,
+        omada_sync_enabled = bool(body.omada_sync_enabled) if body.omada_sync_enabled is not None else False,
+        chain_enabled      = bool(body.chain_enabled) if body.chain_enabled is not None else True,
         created_at=now,
         updated_at=now,
     )
@@ -192,11 +207,12 @@ def create_space(
 def get_space(
     space_id: int,
     db: Session = Depends(get_db),
-    _: str = Depends(get_current_user),
+    me: User = Depends(get_current_user_obj),
 ):
     space = db.query(Space).filter(Space.id == space_id).first()
     if not space:
         raise HTTPException(status_code=404, detail="Espace introuvable")
+    rbac.require_read(db, me, space)
     return _space_out(space)
 
 
@@ -206,11 +222,13 @@ def update_space(
     body: SpaceUpdate,
     request: Request,
     db: Session = Depends(get_db),
-    username: str = Depends(get_current_user),
+    me: User = Depends(get_current_user_obj),
 ):
     space = db.query(Space).filter(Space.id == space_id).first()
     if not space:
         raise HTTPException(status_code=404, detail="Espace introuvable")
+    rbac.require_admin_space(db, me, space)
+    username = me.username
 
     _check_omada_url(body)
 
@@ -232,6 +250,19 @@ def update_space(
     if body.lan_mode is not None and body.lan_mode != getattr(space, "lan_mode", False):
         space.lan_mode = body.lan_mode
         reload_needed = True
+
+    # v2.0.0 — champs conformité (pas de reload rsyslog nécessaire)
+    fields_set = body.model_fields_set
+    if "retention_days" in fields_set and body.retention_days is not None:
+        space.retention_days = int(body.retention_days)
+    if "branding_color" in fields_set:
+        space.branding_color = (body.branding_color or "").strip() or None
+    if "dhcp_parse_enabled" in fields_set and body.dhcp_parse_enabled is not None:
+        space.dhcp_parse_enabled = bool(body.dhcp_parse_enabled)
+    if "omada_sync_enabled" in fields_set and body.omada_sync_enabled is not None:
+        space.omada_sync_enabled = bool(body.omada_sync_enabled)
+    if "chain_enabled" in fields_set and body.chain_enabled is not None:
+        space.chain_enabled = bool(body.chain_enabled)
 
     omada_changed = _apply_omada_fields(space, body, is_create=False)
     _apply_alert_fields(space, body, is_create=False)
@@ -260,8 +291,10 @@ def delete_space(
     request: Request,
     delete_logs: bool = Query(default=False),
     db: Session = Depends(get_db),
-    username: str = Depends(get_current_user),
+    me: User = Depends(get_current_user_obj),
 ):
+    rbac.require_admin(me)
+    username = me.username
     space = db.query(Space).filter(Space.id == space_id).first()
     if not space:
         raise HTTPException(status_code=404, detail="Espace introuvable")
@@ -292,15 +325,102 @@ def delete_space(
     return {"ok": True, "logs_deleted": logs_deleted}
 
 
-@router.get("/{space_id}/omada/test")
-def test_space_omada(
+# ── v2.0.0 — branding per space ──────────────────────────────────────────────
+
+_BRANDING_DIR = Path("/opt/syslog-server/data/branding")
+_BRANDING_DIR.mkdir(parents=True, exist_ok=True)
+
+_ALLOWED_MIME = {"image/png": "png", "image/jpeg": "jpg", "image/gif": "gif"}
+_MAGIC_BYTES = {
+    b"\x89PNG\r\n\x1a\n":  "png",
+    b"\xff\xd8\xff":        "jpg",
+    b"GIF87a":              "gif",
+    b"GIF89a":              "gif",
+}
+_MAX_LOGO_BYTES = 256 * 1024
+
+
+@router.post("/{space_id}/branding/logo")
+async def upload_branding_logo(
     space_id: int,
+    request: Request,
+    file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    _: str = Depends(get_current_user),
+    me: User = Depends(get_current_user_obj),
 ):
     space = db.query(Space).filter(Space.id == space_id).first()
     if not space:
         raise HTTPException(status_code=404, detail="Espace introuvable")
+    rbac.require_admin_space(db, me, space)
+
+    content = await file.read(_MAX_LOGO_BYTES + 1)
+    if len(content) > _MAX_LOGO_BYTES:
+        raise HTTPException(status_code=413, detail=f"Fichier trop volumineux (max {_MAX_LOGO_BYTES//1024} KB)")
+
+    # Vérification par magic bytes (pas seulement l'extension — anti-XSS SVG, etc.)
+    ext = None
+    for magic, e in _MAGIC_BYTES.items():
+        if content.startswith(magic):
+            ext = e
+            break
+    if not ext:
+        raise HTTPException(status_code=400, detail="Format non supporté (PNG, JPEG ou GIF uniquement)")
+
+    out_path = _BRANDING_DIR / f"{space_id}.{ext}"
+    # Supprimer toute ancienne version avec une autre extension
+    for old_ext in ("png", "jpg", "gif"):
+        if old_ext != ext:
+            (_BRANDING_DIR / f"{space_id}.{old_ext}").unlink(missing_ok=True)
+    with open(out_path, "wb") as f:
+        f.write(content)
+    import os
+    try:
+        os.chmod(str(out_path), 0o640)
+    except OSError:
+        pass
+
+    space.branding_logo_path = f"/branding/{space_id}.{ext}"
+    space.updated_at = datetime.now(timezone.utc).isoformat()
+    db.commit()
+
+    audit_svc.log_event(db, request, "space_branding_logo_upload",
+                        username=me.username,
+                        details={"space_id": space_id, "size": len(content), "ext": ext})
+    return {"ok": True, "path": space.branding_logo_path}
+
+
+@router.delete("/{space_id}/branding/logo")
+def delete_branding_logo(
+    space_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    me: User = Depends(get_current_user_obj),
+):
+    space = db.query(Space).filter(Space.id == space_id).first()
+    if not space:
+        raise HTTPException(status_code=404, detail="Espace introuvable")
+    rbac.require_admin_space(db, me, space)
+
+    for ext in ("png", "jpg", "gif"):
+        (_BRANDING_DIR / f"{space_id}.{ext}").unlink(missing_ok=True)
+    space.branding_logo_path = None
+    space.updated_at = datetime.now(timezone.utc).isoformat()
+    db.commit()
+    audit_svc.log_event(db, request, "space_branding_logo_delete",
+                        username=me.username, details={"space_id": space_id})
+    return {"ok": True}
+
+
+@router.get("/{space_id}/omada/test")
+def test_space_omada(
+    space_id: int,
+    db: Session = Depends(get_db),
+    me: User = Depends(get_current_user_obj),
+):
+    space = db.query(Space).filter(Space.id == space_id).first()
+    if not space:
+        raise HTTPException(status_code=404, detail="Espace introuvable")
+    rbac.require_admin_space(db, me, space)
     client = omada_svc.get_client_for_space(space)
     if not client:
         raise HTTPException(status_code=400, detail="Intégration Omada non configurée pour cet espace")

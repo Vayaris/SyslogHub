@@ -4,12 +4,13 @@ from sqlalchemy.orm import Session
 
 from ..auth import (
     authenticate_user, create_session, extract_session_id,
-    get_admin_totp_secret, get_admin_totp_last_counter,
+    get_totp_secret_for, get_totp_last_counter_for,
     get_current_user, make_totp_tx,
-    revoke_session, set_admin_totp_last_counter,
-    totp_enabled, verify_totp_tx,
+    revoke_session, set_totp_last_counter_for,
+    totp_enabled_for, verify_totp_tx,
 )
 from ..database import get_db
+from ..models import User
 from ..schemas import LoginRequest, TOTPLoginRequest
 from ..services import audit as audit_svc
 from ..services import oidc as oidc_svc
@@ -72,11 +73,11 @@ def login(
                             details={"reason": "bad_credentials"})
         raise HTTPException(status_code=401, detail="Identifiants invalides")
 
-    # If 2FA is active, issue a short-lived tx_id instead of a session cookie;
-    # the client must POST /login/totp with a valid code to finish login.
+    # If 2FA is active for this user, issue a short-lived tx_id instead of a
+    # session cookie; the client must POST /login/totp with a valid code.
     # Note: we do NOT reset the lockout counter yet — the password step alone
     # is not a full success until the TOTP step also passes.
-    if totp_enabled():
+    if totp_enabled_for(body.username):
         audit_svc.log_event(db, request, "login_totp_challenge",
                             username=body.username)
         return {
@@ -111,9 +112,9 @@ def login_totp(
     _ensure_not_locked(db, request, username)
     ip = _client_ip(request)
 
-    secret = get_admin_totp_secret()
+    secret = get_totp_secret_for(username)
     matched_counter = totp_svc.verify_and_advance(
-        secret or "", body.code, get_admin_totp_last_counter()
+        secret or "", body.code, get_totp_last_counter_for(username)
     )
     if matched_counter is None:
         ratelimit_svc.record_attempt(db, username, ip, success=False)
@@ -127,7 +128,7 @@ def login_totp(
         raise HTTPException(status_code=401, detail="Code 2FA invalide")
 
     # Burn the counter so the same code can't be reused within its window.
-    set_admin_totp_last_counter(matched_counter)
+    set_totp_last_counter_for(username, matched_counter)
     ratelimit_svc.record_attempt(db, username, ip, success=True)
     token, session_id = create_session(username, request)
     _set_session_cookie(response, request, token)
@@ -157,8 +158,43 @@ def logout(
 
 
 @router.get("/me")
-def me(username: str = Depends(get_current_user)):
-    return {"username": username}
+def me(
+    request: Request,
+    db: Session = Depends(get_db),
+    username: str = Depends(get_current_user),
+):
+    """Enriched user info for the frontend (v2.0.0).
+
+    Backward-compatible : the `username` field is preserved; new fields are
+    additive so legacy JS keeps working."""
+    u = db.query(User).filter(User.username == username).first()
+    # Legacy admin fallback (if migration hasn't created the row yet)
+    from ..models import Setting
+    password_must_change = False
+    flag = db.query(Setting).filter(Setting.key == "admin_password_must_change").first()
+    admin_row = db.query(Setting).filter(Setting.key == "admin_username").first()
+    legacy_admin = admin_row.value if admin_row else "admin"
+    if flag and flag.value == "true" and username == legacy_admin:
+        password_must_change = True
+
+    if u is None:
+        # Synthesize for the legacy admin (shouldn't normally happen)
+        return {
+            "username": username,
+            "email": None,
+            "role_global": "admin" if username == legacy_admin else "operator",
+            "is_admin": (username == legacy_admin),
+            "totp_enabled": False,
+            "password_must_change": password_must_change,
+        }
+    return {
+        "username": u.username,
+        "email": u.email,
+        "role_global": u.role_global,
+        "is_admin": (u.role_global == "admin" and not u.disabled),
+        "totp_enabled": bool(u.totp_enabled),
+        "password_must_change": password_must_change,
+    }
 
 
 # ── OIDC / SSO ────────────────────────────────────────────────────────────────
@@ -227,12 +263,38 @@ async def oidc_callback(
                                      "email": email})
         return RedirectResponse(url="/login?error=oidc_denied", status_code=302)
 
-    # Use the email as the app username (we're a single-admin app, but the
-    # audit log will show the real person behind the SSO).
+    # v2.0.0 — provision the user in the `users` table on first login.
+    # Subsequent logins just bump last_login_at.
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat()
+    sub = (userinfo.get("sub") or "").strip() or None
+    user = (
+        db.query(User).filter(User.oidc_subject == sub).first() if sub else None
+    ) or db.query(User).filter(User.username == email).first()
+
+    if user is None:
+        user = User(
+            username     = email,
+            email        = email,
+            password_hash= None,
+            role_global  = "operator",     # OIDC users get operator by default; admin can promote
+            oidc_subject = sub,
+            created_at   = now,
+            last_login_at= now,
+        )
+        db.add(user)
+        db.commit()
+    else:
+        user.last_login_at = now
+        if sub and not user.oidc_subject:
+            user.oidc_subject = sub
+        db.commit()
+
     redirect = RedirectResponse(url="/dashboard", status_code=302)
-    session_token, session_id = create_session(email, request)
+    session_token, session_id = create_session(user.username, request)
     _set_session_cookie(redirect, request, session_token)
     audit_svc.log_event(db, request, "login",
-                        username=email,
-                        details={"via": "oidc", "session_id": session_id})
+                        username=user.username,
+                        details={"via": "oidc", "session_id": session_id,
+                                 "new_user": bool(user.last_login_at == now and (user.created_at or "") == now)})
     return redirect

@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+{% block title %}Documents RGPD — Syslog Server{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>Documents RGPD</h2>
+    <p class="text-muted">Registre art. 30 · mention captive portal · rapport annuel</p>
+  </div>
+  <a href="/compliance" class="btn btn-secondary">← Retour</a>
+</div>
+
+<div id="not-admin-banner" class="alert alert-danger" style="display:none;margin-bottom:16px">
+  <strong>Accès partiel</strong> — la configuration organisation + registre + rapport annuel sont réservés aux administrateurs.
+  Vous pouvez néanmoins télécharger la mention d'information pour un espace auquel vous avez accès.
+</div>
+
+<div class="settings-grid">
+  <div class="card" id="org-card" style="display:none">
+    <div class="card-header"><h3>Informations organisation</h3></div>
+    <form id="org-form" onsubmit="return saveOrg(event)">
+      <div class="form-group">
+        <label>Nom de l'organisation</label>
+        <input type="text" id="o-name" maxlength="200" placeholder="Hôtels Lumière SAS">
+      </div>
+      <div class="form-group">
+        <label>Adresse</label>
+        <input type="text" id="o-address" maxlength="300" placeholder="1 rue de la Paix, 75000 Paris">
+      </div>
+      <div class="form-group">
+        <label>SIREN</label>
+        <input type="text" id="o-siren" maxlength="20" placeholder="123 456 789">
+      </div>
+      <div class="form-group">
+        <label>DPO — nom</label>
+        <input type="text" id="o-dpo-name" maxlength="200">
+      </div>
+      <div class="form-group">
+        <label>DPO — email</label>
+        <input type="email" id="o-dpo-email" maxlength="254">
+      </div>
+      <div class="form-group">
+        <label>Contact droits RGPD (utilisateurs finaux)</label>
+        <input type="email" id="o-privacy-email" maxlength="254" placeholder="rgpd@monorg.com">
+      </div>
+      <button type="submit" class="btn btn-primary">Enregistrer</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><h3>Registre de traitement (art. 30 RGPD)</h3></div>
+    <p class="text-muted">Document pré-rempli avec vos espaces, durées de rétention et mesures de sécurité. À présenter en cas de contrôle CNIL.</p>
+    <a id="a-register" class="btn btn-primary" href="/api/compliance/docs/register.pdf" target="_blank" style="display:none">Télécharger le registre PDF</a>
+    <span id="reg-admin-hint" class="text-muted">Réservé aux administrateurs.</span>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><h3>Mention d'information captive portal</h3></div>
+    <p class="text-muted">Document à afficher ou intégrer au portail captif WiFi. Pré-rempli par espace (durée de rétention, contact DPO, organisation).</p>
+    <div class="form-group">
+      <label for="notice-space">Espace concerné</label>
+      <select id="notice-space"></select>
+    </div>
+    <div style="display:flex;gap:8px">
+      <a id="a-notice-pdf" class="btn btn-primary" href="#" target="_blank">Notice PDF</a>
+      <a id="a-notice-md"  class="btn" href="#" target="_blank">Version Markdown</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><h3>Rapport annuel de conformité</h3></div>
+    <p class="text-muted">Synthèse annuelle : uptime de collecte, gaps, réquisitions, taux TSA. Document pour DPO / audit / CNIL.</p>
+    <div class="form-group">
+      <label for="year-input">Année</label>
+      <input type="number" id="year-input" min="2020" max="2099">
+    </div>
+    <a id="a-annual" class="btn btn-primary" href="#" target="_blank" style="display:none">Télécharger le rapport PDF</a>
+    <span id="ann-admin-hint" class="text-muted">Réservé aux administrateurs.</span>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadAll() {
+  // Wait for __ME
+  for (let i=0;i<20;i++) { if (window.__ME) break; await new Promise(r=>setTimeout(r,50)); }
+
+  if (window.__ME && window.__ME.is_admin) {
+    document.getElementById('org-card').style.display = '';
+    document.getElementById('a-register').style.display = '';
+    document.getElementById('a-annual').style.display = '';
+    document.getElementById('reg-admin-hint').style.display = 'none';
+    document.getElementById('ann-admin-hint').style.display = 'none';
+
+    // Load org config
+    try {
+      const org = await api('GET', '/compliance/docs/organization');
+      document.getElementById('o-name').value = org.name || '';
+      document.getElementById('o-address').value = org.address || '';
+      document.getElementById('o-siren').value = org.siren || '';
+      document.getElementById('o-dpo-name').value = org.dpo_name || '';
+      document.getElementById('o-dpo-email').value = org.dpo_email || '';
+      document.getElementById('o-privacy-email').value = org.privacy_contact_email || '';
+    } catch (e) { /* ignore */ }
+  } else {
+    document.getElementById('not-admin-banner').style.display = '';
+  }
+
+  // Populate space select for notice
+  const spaces = await api('GET', '/spaces');
+  const sel = document.getElementById('notice-space');
+  sel.innerHTML = spaces.map(s =>
+    `<option value="${s.id}">${s.name} (port ${s.port})</option>`
+  ).join('');
+  const onChange = () => {
+    const id = sel.value;
+    document.getElementById('a-notice-pdf').href = `/api/compliance/docs/notice/${id}.pdf`;
+    document.getElementById('a-notice-md').href  = `/api/compliance/docs/notice/${id}.md`;
+  };
+  sel.addEventListener('change', onChange);
+  if (spaces.length) onChange();
+
+  // Year
+  const yearInput = document.getElementById('year-input');
+  yearInput.value = new Date().getUTCFullYear();
+  const updAnnual = () => {
+    document.getElementById('a-annual').href = `/api/compliance/docs/annual-report.pdf?year=${yearInput.value}`;
+  };
+  yearInput.addEventListener('input', updAnnual);
+  updAnnual();
+}
+
+async function saveOrg(ev) {
+  ev.preventDefault();
+  const body = {
+    organization_name: document.getElementById('o-name').value.trim() || null,
+    organization_address: document.getElementById('o-address').value.trim() || null,
+    organization_siren: document.getElementById('o-siren').value.trim() || null,
+    dpo_name: document.getElementById('o-dpo-name').value.trim() || null,
+    dpo_email: document.getElementById('o-dpo-email').value.trim() || null,
+    privacy_contact_email: document.getElementById('o-privacy-email').value.trim() || null,
+  };
+  try {
+    await api('PUT', '/compliance/docs/organization', body);
+    showToast('Organisation enregistrée', 'success');
+  } catch (e) {
+    showToast('Erreur : ' + e.message, 'error');
+  }
+  return false;
+}
+
+loadAll();
+</script>
+{% endblock %}

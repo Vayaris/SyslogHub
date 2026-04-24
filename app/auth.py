@@ -7,7 +7,7 @@ from itsdangerous import TimestampSigner, BadSignature, SignatureExpired
 from fastapi import Request, HTTPException
 from sqlalchemy.orm import Session
 from .database import SessionLocal
-from .models import ActiveSession, Setting
+from .models import ActiveSession, Setting, User
 from . import config
 
 log = logging.getLogger("syslog-server")
@@ -26,8 +26,28 @@ def _get_secret() -> str:
         db.close()
 
 
+def totp_enabled_for(username: str) -> bool:
+    """True if this user has TOTP 2FA activated (v2 user row or legacy admin)."""
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.username == username).first()
+        if user and user.totp_enabled and user.totp_secret:
+            return True
+        # Legacy fallback : the global admin TOTP setting, only if the username
+        # matches the legacy admin_username (so an OIDC user doesn't accidentally
+        # inherit the admin's 2FA challenge).
+        admin_name = db.query(Setting).filter(Setting.key == "admin_username").first()
+        if admin_name and admin_name.value == username:
+            row = db.query(Setting).filter(Setting.key == "admin_totp_enabled").first()
+            return bool(row and row.value == "true")
+        return False
+    finally:
+        db.close()
+
+
 def totp_enabled() -> bool:
-    """True if the admin has TOTP 2FA activated."""
+    """Legacy wrapper : True if the *legacy admin* has TOTP. Kept for
+    code paths that still reference the global admin."""
     db = SessionLocal()
     try:
         row = db.query(Setting).filter(Setting.key == "admin_totp_enabled").first()
@@ -36,7 +56,24 @@ def totp_enabled() -> bool:
         db.close()
 
 
+def get_totp_secret_for(username: str) -> str | None:
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.username == username).first()
+        if user and user.totp_enabled and user.totp_secret:
+            return user.totp_secret
+        # Legacy admin fallback
+        admin_name = db.query(Setting).filter(Setting.key == "admin_username").first()
+        if admin_name and admin_name.value == username:
+            row = db.query(Setting).filter(Setting.key == "admin_totp_secret").first()
+            return row.value if row else None
+        return None
+    finally:
+        db.close()
+
+
 def get_admin_totp_secret() -> str | None:
+    """Legacy wrapper. Prefer `get_totp_secret_for(username)` in new code."""
     db = SessionLocal()
     try:
         row = db.query(Setting).filter(Setting.key == "admin_totp_secret").first()
@@ -45,9 +82,26 @@ def get_admin_totp_secret() -> str | None:
         db.close()
 
 
+def get_totp_last_counter_for(username: str) -> int:
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.username == username).first()
+        if user and user.totp_enabled:
+            return int(user.totp_last_counter or 0)
+        admin_name = db.query(Setting).filter(Setting.key == "admin_username").first()
+        if admin_name and admin_name.value == username:
+            row = db.query(Setting).filter(Setting.key == "admin_totp_last_counter").first()
+            try:
+                return int(row.value) if row else 0
+            except (TypeError, ValueError):
+                return 0
+        return 0
+    finally:
+        db.close()
+
+
 def get_admin_totp_last_counter() -> int:
-    """Return the last TOTP counter value the admin successfully consumed,
-    or 0 if unset. Used by verify_and_advance to block replay."""
+    """Legacy wrapper."""
     db = SessionLocal()
     try:
         row = db.query(Setting).filter(
@@ -61,7 +115,31 @@ def get_admin_totp_last_counter() -> int:
         db.close()
 
 
+def set_totp_last_counter_for(username: str, counter: int) -> None:
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.username == username).first()
+        if user and user.totp_enabled:
+            user.totp_last_counter = counter
+            db.commit()
+            return
+        # Legacy admin
+        admin_name = db.query(Setting).filter(Setting.key == "admin_username").first()
+        if admin_name and admin_name.value == username:
+            row = db.query(Setting).filter(
+                Setting.key == "admin_totp_last_counter"
+            ).first()
+            if row:
+                row.value = str(counter)
+            else:
+                db.add(Setting(key="admin_totp_last_counter", value=str(counter)))
+            db.commit()
+    finally:
+        db.close()
+
+
 def set_admin_totp_last_counter(counter: int) -> None:
+    """Legacy wrapper."""
     db = SessionLocal()
     try:
         row = db.query(Setting).filter(
@@ -224,6 +302,9 @@ def purge_stale_sessions(db: Session) -> int:
 
 
 def get_current_user(request: Request) -> str:
+    """Legacy dependency: returns the username string. Kept for routes
+    that only need to audit the actor. Prefer `get_current_user_obj` for
+    RBAC-aware code (Phase A v2.0.0)."""
     token = request.cookies.get("session")
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -231,6 +312,53 @@ def get_current_user(request: Request) -> str:
     if not username:
         raise HTTPException(status_code=401, detail="Session expired")
     return username
+
+
+def get_user_by_username(db: Session, username: str) -> User | None:
+    return db.query(User).filter(User.username == username).first()
+
+
+def get_user_by_id(db: Session, user_id: int) -> User | None:
+    return db.query(User).filter(User.id == user_id).first()
+
+
+def get_current_user_obj(request: Request) -> User:
+    """v2.0.0 — dependency that resolves the session cookie to a User object.
+
+    Falls back to the legacy admin settings if the User row hasn't been
+    created yet (fresh install, first boot before migration ran — should
+    be impossible, but we fail-open to the admin in that case so the user
+    doesn't get locked out of their own instance)."""
+    token = request.cookies.get("session")
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    username = validate_session(token)
+    if not username:
+        raise HTTPException(status_code=401, detail="Session expired")
+    db = SessionLocal()
+    try:
+        user = get_user_by_username(db, username)
+        if user is None:
+            # Migration may not have run yet OR the legacy admin renamed but
+            # didn't propagate. Last-ditch : if this username matches the
+            # legacy admin_username setting, treat as admin.
+            admin_row = db.query(Setting).filter(Setting.key == "admin_username").first()
+            if admin_row and admin_row.value == username:
+                # Synthesize an in-memory User (not persisted) to unblock the
+                # admin UI. Startup migration will create the row on next boot.
+                stub = User(
+                    id=0, username=username, role_global="admin",
+                    disabled=False, created_at=_now_iso(),
+                )
+                return stub
+            raise HTTPException(status_code=401, detail="Utilisateur introuvable")
+        if user.disabled:
+            raise HTTPException(status_code=403, detail="Compte désactivé")
+        # Expunge so the caller can access attributes after the session closes
+        db.expunge(user)
+        return user
+    finally:
+        db.close()
 
 
 def hash_password(plain: str) -> str:
@@ -245,8 +373,24 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 
 def authenticate_user(username: str, password: str) -> bool:
+    """Check credentials. v2.0.0 : tries the `users` table first (post-migration),
+    then falls back to the legacy `admin_*` settings (in case migration didn't
+    run yet or the only admin is still the legacy one)."""
     db = SessionLocal()
     try:
+        # Users table (v2+)
+        user = db.query(User).filter(User.username == username).first()
+        if user and not user.disabled and user.password_hash:
+            if verify_password(password, user.password_hash):
+                # Touch last_login_at (best-effort)
+                try:
+                    user.last_login_at = _now_iso()
+                    db.commit()
+                except Exception:
+                    db.rollback()
+                return True
+
+        # Legacy admin fallback
         u_row = db.query(Setting).filter(Setting.key == "admin_username").first()
         p_row = db.query(Setting).filter(Setting.key == "admin_password_hash").first()
         if not u_row or not p_row:

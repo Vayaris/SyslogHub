@@ -14,10 +14,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from ..auth import get_current_user
+from ..auth import get_current_user_obj
 from .. import config
 from ..database import get_db
-from ..models import Space
+from ..models import Space, User
 from ..schemas import (
     FileInfo, LogViewResult, SearchResponse, SearchResult,
     SourceInfo, SourceListResponse, TestLogRequest,
@@ -26,14 +26,24 @@ from ..services import omada as omada_svc
 from ..services import log_scanner
 from ..services import audit as audit_svc
 from ..services import geoip as geoip_svc
+from ..services import rbac
 
 router = APIRouter(prefix="/api/logs", tags=["logs"])
 
 
-def _get_space_or_404(space_id: int, db: Session) -> Space:
+def _get_space_readable(space_id: int, db: Session, me: User) -> Space:
     space = db.query(Space).filter(Space.id == space_id).first()
     if not space:
         raise HTTPException(status_code=404, detail="Espace introuvable")
+    rbac.require_read(db, me, space)
+    return space
+
+
+def _get_space_writable(space_id: int, db: Session, me: User) -> Space:
+    space = db.query(Space).filter(Space.id == space_id).first()
+    if not space:
+        raise HTTPException(status_code=404, detail="Espace introuvable")
+    rbac.require_write(db, me, space)
     return space
 
 
@@ -62,12 +72,14 @@ def search_logs(
     space_id: int = Query(default=None),
     lines: int = Query(default=200, ge=1, le=1000),
     db: Session = Depends(get_db),
-    _: str = Depends(get_current_user),
+    me: User = Depends(get_current_user_obj),
 ):
+    # Filtre aux spaces accessibles par l'utilisateur
     if space_id:
         spaces = db.query(Space).filter(Space.id == space_id).all()
+        spaces = [s for s in spaces if rbac.can_read_space(db, me, s)]
     else:
-        spaces = db.query(Space).all()
+        spaces = rbac.accessible_spaces(db, me)
 
     results = []
     truncated = False
@@ -120,9 +132,10 @@ def delete_source(
     ip: str,
     request: Request,
     db: Session = Depends(get_db),
-    username: str = Depends(get_current_user),
+    me: User = Depends(get_current_user_obj),
 ):
-    space = _get_space_or_404(space_id, db)
+    space = _get_space_writable(space_id, db, me)
+    username = me.username
     _validate_ip(ip)
 
     log_dir = Path(config.LOG_ROOT) / str(space.port)
@@ -151,11 +164,12 @@ def send_test_log(
     body: TestLogRequest,
     request: Request,
     db: Session = Depends(get_db),
-    username: str = Depends(get_current_user),
+    me: User = Depends(get_current_user_obj),
 ):
     """Envoie un syslog UDP de test depuis 127.0.0.1 vers le port de l'espace,
     pour vérifier que la réception est opérationnelle et autorisée."""
-    space = _get_space_or_404(space_id, db)
+    space = _get_space_writable(space_id, db, me)
+    username = me.username
 
     allowed_ip = getattr(space, "allowed_ip", None)
     if allowed_ip and allowed_ip not in ("127.0.0.1", "::1"):
@@ -195,9 +209,9 @@ def list_sources(
     per_page: int = Query(50, ge=1, le=200),
     filter_ip: str = Query(default=""),
     db: Session = Depends(get_db),
-    _: str = Depends(get_current_user),
+    me: User = Depends(get_current_user_obj),
 ):
-    space = _get_space_or_404(space_id, db)
+    space = _get_space_readable(space_id, db, me)
     sources = log_scanner.list_sources(space.port)
 
     if filter_ip:
@@ -269,9 +283,9 @@ def list_files(
     space_id: int,
     ip: str,
     db: Session = Depends(get_db),
-    _: str = Depends(get_current_user),
+    me: User = Depends(get_current_user_obj),
 ):
-    space = _get_space_or_404(space_id, db)
+    space = _get_space_readable(space_id, db, me)
     _validate_ip(ip)
     files = log_scanner.list_files(space.port, ip)
     return [FileInfo(**f) for f in files]
@@ -281,9 +295,9 @@ def list_files(
 def list_ap_macs(
     space_id: int,
     db: Session = Depends(get_db),
-    _: str = Depends(get_current_user),
+    me: User = Depends(get_current_user_obj),
 ):
-    space = _get_space_or_404(space_id, db)
+    space = _get_space_readable(space_id, db, me)
     macs = log_scanner.list_ap_macs(space.port)
 
     omada = omada_svc.get_client_for_space(space)
@@ -316,9 +330,9 @@ def view_log(
     filter: str = Query(default=""),
     ap_mac: str = Query(default=""),
     db: Session = Depends(get_db),
-    _: str = Depends(get_current_user),
+    me: User = Depends(get_current_user_obj),
 ):
-    space = _get_space_or_404(space_id, db)
+    space = _get_space_readable(space_id, db, me)
     path = _validate_log_path(space.port, ip, filename)
     result = log_scanner.read_log_tail(
         path, lines=lines, offset=offset,
@@ -334,9 +348,9 @@ def view_merged_log(
     offset: int = Query(default=0, ge=0),
     filter: str = Query(default=""),
     db: Session = Depends(get_db),
-    _: str = Depends(get_current_user),
+    me: User = Depends(get_current_user_obj),
 ):
-    space = _get_space_or_404(space_id, db)
+    space = _get_space_readable(space_id, db, me)
     if not getattr(space, "lan_mode", False):
         raise HTTPException(status_code=404, detail="Mode LAN désactivé pour cet espace")
     path = log_scanner._merged_log_path(space.port)
@@ -355,9 +369,9 @@ async def stream_log(
     request: Request,
     filename: str = Query(...),
     db: Session = Depends(get_db),
-    _: str = Depends(get_current_user),
+    me: User = Depends(get_current_user_obj),
 ):
-    space = _get_space_or_404(space_id, db)
+    space = _get_space_readable(space_id, db, me)
     path = _validate_log_path(space.port, ip, filename)
 
     async def event_generator():
@@ -389,9 +403,9 @@ async def stream_merged_log(
     space_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    _: str = Depends(get_current_user),
+    me: User = Depends(get_current_user_obj),
 ):
-    space = _get_space_or_404(space_id, db)
+    space = _get_space_readable(space_id, db, me)
     if not getattr(space, "lan_mode", False):
         raise HTTPException(status_code=404, detail="Mode LAN désactivé pour cet espace")
     path = log_scanner._merged_log_path(space.port)
@@ -425,9 +439,9 @@ def download_log(
     ip: str,
     filename: str = Query(...),
     db: Session = Depends(get_db),
-    _: str = Depends(get_current_user),
+    me: User = Depends(get_current_user_obj),
 ):
-    space = _get_space_or_404(space_id, db)
+    space = _get_space_readable(space_id, db, me)
     path = _validate_log_path(space.port, ip, filename)
 
     def file_streamer():
@@ -447,9 +461,9 @@ def download_source_zip(
     space_id: int,
     ip: str,
     db: Session = Depends(get_db),
-    _: str = Depends(get_current_user),
+    me: User = Depends(get_current_user_obj),
 ):
-    space = _get_space_or_404(space_id, db)
+    space = _get_space_readable(space_id, db, me)
     _validate_ip(ip)
 
     log_dir = Path(config.LOG_ROOT) / str(space.port)
@@ -490,9 +504,9 @@ def download_source_range(
     start: str = Query(..., description="YYYY-MM-DD, inclusif"),
     end:   str = Query(..., description="YYYY-MM-DD, inclusif"),
     db: Session = Depends(get_db),
-    _: str = Depends(get_current_user),
+    me: User = Depends(get_current_user_obj),
 ):
-    space = _get_space_or_404(space_id, db)
+    space = _get_space_readable(space_id, db, me)
     _validate_ip(ip)
 
     try:
@@ -529,9 +543,9 @@ def download_source_range(
 def download_space_zip(
     space_id: int,
     db: Session = Depends(get_db),
-    _: str = Depends(get_current_user),
+    me: User = Depends(get_current_user_obj),
 ):
-    space = _get_space_or_404(space_id, db)
+    space = _get_space_readable(space_id, db, me)
     log_dir = Path(config.LOG_ROOT) / str(space.port)
 
     if not log_dir.exists():

@@ -7,10 +7,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy.orm import Session
 
 from ..auth import (
-    extract_session_id, get_current_user, hash_password, verify_password,
+    extract_session_id, get_current_user, get_current_user_obj,
+    hash_password, verify_password,
 )
 from ..database import get_db
-from ..models import ActiveSession, AuditLog, Setting, Space
+from ..models import ActiveSession, AuditLog, Setting, Space, User
 from ..schemas import (
     AlertsConfigOut, AlertsConfigUpdate, AlertTestRequest,
     AuditEntry, AuditListResponse,
@@ -22,6 +23,7 @@ from ..schemas import (
 from ..services import alerts as alerts_svc
 from ..services import audit as audit_svc
 from ..services import crypto as crypto_svc
+from ..services import rbac
 from ..services import totp as totp_svc
 from ..services import url_guard
 from ..services.log_scanner import total_log_size, volume_by_day
@@ -62,8 +64,16 @@ def update_settings(
     body: SettingsUpdate,
     request: Request,
     db: Session = Depends(get_db),
-    username: str = Depends(get_current_user),
+    me: User = Depends(get_current_user_obj),
 ):
+    username = me.username
+    # Tous les changements ci-dessous affectent l'instance globale :
+    # seul un admin peut y toucher. Les utilisateurs non-admin gardent
+    # toutefois la possibilité de changer leur propre mot de passe via ce
+    # même endpoint (champs current_password / new_password sans autre
+    # champ).
+    if body.retention_days is not None or body.admin_username is not None:
+        rbac.require_admin(me)
     changed: list[str] = []
 
     if body.retention_days is not None:
@@ -79,19 +89,46 @@ def update_settings(
             raise HTTPException(
                 status_code=400, detail="Mot de passe actuel requis"
             )
-        current_hash = _get_setting(db, "admin_password_hash") or ""
-        if not verify_password(body.current_password, current_hash):
+
+        # v2.0.0 : vérifier le mot de passe actuel contre la ligne `users` du
+        # caller, avec fallback sur la setting legacy si le caller est le
+        # compte admin issu d'une install < v2. Ainsi :
+        #  - un utilisateur créé après migration change son propre mot de passe ;
+        #  - l'admin legacy peut toujours changer le sien sans rupture UX.
+        user_row = db.query(User).filter(User.id == me.id).first() if me.id else None
+        current_ok = False
+        if user_row and user_row.password_hash:
+            current_ok = verify_password(body.current_password, user_row.password_hash)
+        if not current_ok:
+            # Legacy admin fallback
+            legacy_admin = _get_setting(db, "admin_username") or "admin"
+            if username == legacy_admin:
+                legacy_hash = _get_setting(db, "admin_password_hash") or ""
+                current_ok = verify_password(body.current_password, legacy_hash)
+
+        if not current_ok:
             audit_svc.log_event(db, request, "password_change_failed",
                                 username=username,
                                 details={"reason": "bad_current"})
             raise HTTPException(
                 status_code=400, detail="Mot de passe actuel incorrect"
             )
-        _set_setting(db, "admin_password_hash", hash_password(body.new_password))
-        # Rotate session secret so all existing sessions (this browser + others) are invalidated
+
+        new_hash = hash_password(body.new_password)
+
+        # Propager sur la ligne users si elle existe
+        if user_row:
+            user_row.password_hash = new_hash
+
+        # Et sur la setting legacy si c'est l'admin legacy (miroir)
+        legacy_admin = _get_setting(db, "admin_username") or "admin"
+        if username == legacy_admin:
+            _set_setting(db, "admin_password_hash", new_hash)
+            _set_setting(db, "admin_password_must_change", "false")
+
+        # Rotate session secret → toutes les sessions ouvertes sont invalidées.
         _set_setting(db, "session_secret", secrets.token_hex(32))
-        # Clear the "must change default password" flag set at install time.
-        _set_setting(db, "admin_password_must_change", "false")
+        db.commit()
         audit_svc.log_event(db, request, "password_change", username=username)
 
     if changed:
@@ -157,8 +194,10 @@ def update_alerts_config(
     body: AlertsConfigUpdate,
     request: Request,
     db: Session = Depends(get_db),
-    username: str = Depends(get_current_user),
+    me: User = Depends(get_current_user_obj),
 ):
+    rbac.require_admin(me)
+    username = me.username
     fields = body.model_fields_set
     if "enabled" in fields:
         _set_setting(db, "alerts_global_enabled", "true" if body.enabled else "false")
@@ -248,8 +287,10 @@ def purge_audit(
     request: Request,
     before: str = Query(default=""),
     db: Session = Depends(get_db),
-    username: str = Depends(get_current_user),
+    me: User = Depends(get_current_user_obj),
 ):
+    rbac.require_admin(me)
+    username = me.username
     cutoff = before or datetime.now(timezone.utc).isoformat()
     n = (db.query(AuditLog)
            .filter(AuditLog.ts < cutoff)
@@ -349,8 +390,10 @@ def update_oidc_config(
     body: OIDCConfigUpdate,
     request: Request,
     db: Session = Depends(get_db),
-    username: str = Depends(get_current_user),
+    me: User = Depends(get_current_user_obj),
 ):
+    rbac.require_admin(me)
+    username = me.username
     fields = body.model_fields_set
 
     # v1.10.0 — refuse non-HTTPS or private-IP discovery URLs. An attacker

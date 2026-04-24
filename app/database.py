@@ -20,6 +20,58 @@ def get_db():
         db.close()
 
 
+def _migrate_v2_users():
+    """v2.0.0 — bootstrap the `users` table from the legacy admin settings.
+
+    We keep the legacy `admin_*` settings keys in place (fallback used by the
+    still-running v1.x code paths during the ramp-up of v2). A flag
+    `v2_users_migrated` makes this idempotent."""
+    from .models import Setting, User
+
+    db = SessionLocal()
+    try:
+        flag = db.query(Setting).filter(Setting.key == "v2_users_migrated").first()
+        if flag and flag.value == "true":
+            return
+
+        # Gather legacy admin identity
+        rows = {
+            r.key: r.value
+            for r in db.query(Setting).filter(Setting.key.in_([
+                "admin_username", "admin_password_hash",
+                "admin_totp_enabled", "admin_totp_secret", "admin_totp_last_counter",
+            ])).all()
+        }
+        username = rows.get("admin_username") or "admin"
+        phash    = rows.get("admin_password_hash")
+        if not phash:
+            # Nothing to migrate yet (fresh install — init_db seeds the legacy
+            # keys just above, so on next call this function will pick them up).
+            return
+
+        existing = db.query(User).filter(User.username == username).first()
+        if existing is None:
+            from datetime import datetime, timezone
+            db.add(User(
+                username      = username,
+                password_hash = phash,
+                totp_secret   = rows.get("admin_totp_secret"),
+                totp_enabled  = (rows.get("admin_totp_enabled") == "true"),
+                totp_last_counter = int(rows.get("admin_totp_last_counter") or 0),
+                role_global   = "admin",
+                created_at    = datetime.now(timezone.utc).isoformat(),
+            ))
+
+        # Record the migration
+        if flag:
+            flag.value = "true"
+        else:
+            db.add(Setting(key="v2_users_migrated", value="true"))
+        db.commit()
+    finally:
+        db.close()
+
+
 def _migrate_global_omada_to_space():
     """Legacy `settings.omada_*` keys → first space's Omada columns, then purge."""
     from .models import Space, Setting
@@ -82,6 +134,13 @@ def init_db():
         "ALTER TABLE spaces ADD COLUMN alert_state TEXT NOT NULL DEFAULT 'ok'",
         "ALTER TABLE spaces ADD COLUMN alert_last_transition_at TEXT",
         "ALTER TABLE spaces ADD COLUMN omada_controller_ip TEXT",
+        # v2.0.0 — conformité LCEN/RGPD
+        "ALTER TABLE spaces ADD COLUMN retention_days INTEGER NOT NULL DEFAULT 365",
+        "ALTER TABLE spaces ADD COLUMN branding_logo_path TEXT",
+        "ALTER TABLE spaces ADD COLUMN branding_color TEXT",
+        "ALTER TABLE spaces ADD COLUMN dhcp_parse_enabled INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE spaces ADD COLUMN omada_sync_enabled INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE spaces ADD COLUMN chain_enabled INTEGER NOT NULL DEFAULT 1",
     ]
     with engine.connect() as conn:
         for stmt in _migrations:
@@ -93,6 +152,9 @@ def init_db():
 
     # One-time migration: move legacy global Omada config onto the first space
     _migrate_global_omada_to_space()
+
+    # v2.0.0 — migrate legacy admin settings → users row
+    _migrate_v2_users()
 
     db = SessionLocal()
     try:

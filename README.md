@@ -19,6 +19,69 @@ Serveur SYSLOG centralisé avec interface web HTTPS — simple à déployer, fac
 - **Bouton "Envoyer un log test"** : sur la page des sources d'un espace, envoie un syslog UDP depuis `127.0.0.1` avec un message personnalisable, pour vérifier que la réception est active et que la chaîne rsyslog → fichier fonctionne. Refuse l'envoi avec un message clair si l'espace a une allowlist incompatible.
 - **Alertes "no-logs"** : notification email (SMTP Gmail / App Password) + webhook si un espace ne reçoit plus de logs depuis *X* heures (défaut 24h). Une alerte au passage DOWN, une alerte de retour (RECOVERY). Seuil, destinataire et webhook configurables par espace.
 
+## Nouveautés v2.0.0 — Conformité LCEN/RGPD pour WiFi public
+
+Release majeure. SyslogHub devient une solution clé en main pour les opérateurs soumis à la **conservation légale des données de connexion** (hôtels, bars, franchises, lieux publics) — alternative open-source aux appliances commerciales type Ucopia.
+
+### Intégrité cryptographique des logs
+- **Chaîne de hash SHA-256 journalière** par espace : chaque jour, un manifest JSON liste les fichiers de logs avec leur SHA-256 et pointe vers le manifest du jour précédent (`prev_sha256`). Modifier un seul byte casse la chaîne et est détectable.
+- **Horodatage qualifié RFC 3161** : chaque manifest est soumis à une **Time-Stamp Authority** (défaut : FreeTSA, gratuit & public) qui retourne un token signé `.tsr` reconnu comme preuve légale. Valeur probante devant un tribunal.
+- **Timer `syslog-chain.timer`** à 00:05 UTC. Script `verify_chain.py` pour audit indépendant.
+- **Backfill rétroactif** au premier boot v2 (manifests construits pour les logs existants, sans TSA — marqué `skipped_backfill`).
+
+### Workflow réquisition judiciaire
+- Bouton **« Nouvelle réquisition »** dans `/compliance/requisitions` : formulaire (n°, OPJ, justification, espace, plage temporelle).
+- **Bundle ZIP signé** généré automatiquement : logs bruts + manifests + `.tsr` + CSV corrélation + **PV.pdf** pré-rempli + `MANIFEST.json` + `README.txt` + `verify.sh` (vérification portable : bash + sha256sum + openssl).
+- **Legal hold automatique** activé dès l'export : les logs couverts ne peuvent plus être purgés tant que la réquisition n'est pas clôturée.
+- **SHA-256 du bundle** stocké en DB + commentaire ZIP + `signatures/bundle.sha256` interne.
+- Audit trail complet : `requisition_create`, `requisition_export`, `requisition_download`, `requisition_close`.
+
+### Gestion multi-utilisateurs + RBAC par espace
+- Nouvelle table `users` : plusieurs comptes admin ou opérateur. Migration transparente de l'admin legacy.
+- **Rôles par espace** (`owner` / `operator` / `readonly`) : un opérateur ne voit que les espaces auxquels il a explicitement accès. Admin global voit tout.
+- Page `/users` pour la gestion (admin only).
+- OIDC : utilisateur créé automatiquement au premier login SSO avec `role_global='operator'`.
+
+### Rétention légale intelligente
+- **Par espace** (plus de réglage global unique) : preset 180j / 365j (LCEN) / 1095j / personnalisé, avec avertissement RGPD art. 5-1-e.
+- **Legal hold** : `scripts/retention_cleanup.py` refuse de supprimer les fichiers couverts par un hold actif. Audit log dédié (`retention_skip_hold`).
+- Purge automatique quotidienne via le timer `syslog-retention.timer` existant.
+
+### Corrélation identité ↔ IP ↔ temps
+- **Parser DHCP** (`services/dhcp_parser.py`) : détecte les `DHCPACK` depuis les logs syslog entrants (ISC dhcpd, dnsmasq, Mikrotik RouterOS, pfSense, Cisco IOS, OpenWRT).
+- **Sync Omada hotspot** (`services/omada_sync.py`) : pull toutes les 5 minutes des sessions clients (MAC, IP, identifiant email/SMS, AP, SSID, plage temporelle).
+- **Endpoint `/api/correlation/who-was-on`** + page `/compliance/correlation` : « À 2026-04-23 14:35 UTC, IP 192.168.1.42 était attribuée à aa:bb:cc:dd:ee:ff, session hotspot ouverte par jean@example.com via AP Bar-AP-01 ».
+- Flags `dhcp_parse_enabled` et `omada_sync_enabled` par espace.
+
+### Conformité RGPD documentée
+- **Registre de traitement art. 30 RGPD** : `GET /api/compliance/docs/register.pdf` — pré-rempli avec organisation, DPO, traitements par espace.
+- **Mention d'information captive portal** : `GET /api/compliance/docs/notice/<space_id>.{pdf,md}` — document prêt à afficher ou intégrer.
+- **Rapport annuel de conformité** : `GET /api/compliance/docs/annual-report.pdf?year=YYYY` — uptime, gaps, réquisitions, taux TSA.
+- Page `/compliance/documents` (admin) pour configuration organisation + DPO et téléchargement.
+
+### Alertes conformité
+- Nouveaux déclencheurs dans `scripts/alert_check.py` : **chain_gap** (logs sans manifest), **tsa_failure** (manifests en échec après 3 tentatives), **legal_hold_long** (réquisition exportée depuis >90 jours sans clôture).
+- Intégrés au timer existant `syslog-alerts.timer` (toutes les 10 min).
+
+### Franchise / multi-établissement
+- **Branding par espace** : upload logo (PNG/JPEG/GIF, max 256 KB, validation magic bytes) + couleur hex. Servi via `/branding/<space_id>.ext`.
+
+### Migration v1.x → v2.0.0
+- `update.sh` applique tout automatiquement : nouveaux timers, CA FreeTSA, nouvelles colonnes DB (idempotent `ALTER TABLE`), nouvelle table `users`.
+- **TSA opt-in sur upgrade** (désactivée par défaut, l'admin active explicitement dans `/compliance/chain`).
+- **Backfill chaîne en background** au 1er boot v2 : peut prendre plusieurs minutes sur une install chargée, non bloquant.
+- Settings legacy `admin_*` conservés comme fallback — purgés en v2.2 après ramp-up.
+
+### Hors scope v2.0.0 (roadmap v2.1)
+- Service non-root (sysloghub user + sudoers restreint pour `systemctl restart rsyslog`)
+- SQLCipher (alternative à Fernet field-level)
+- WebAuthn en complément de TOTP
+- Binding session IP/UA
+- Upload SVG avec sanitizer strict
+- Search full-text + parsing RFC5424 structuré
+
+---
+
 ## Nouveautés v1.10.0 — Hardening sécurité
 
 - **Mot de passe par défaut `changeme` bloqué** : tant qu'il n'est pas remplacé, toute requête authentifiée (sauf `/settings` et les endpoints nécessaires au changement) renvoie 403 `password_change_required` ou redirige vers `/settings?force_password=1`. Bannière rouge explicite dans Paramètres. Le flag est clearé automatiquement au premier changement.

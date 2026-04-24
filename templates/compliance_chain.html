@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+{% block title %}Chaîne d'intégrité — Syslog Server{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>Chaîne d'intégrité</h2>
+    <p class="text-muted">Hash SHA-256 chaînés + horodatage RFC3161 par jour</p>
+  </div>
+  <a href="/compliance" class="btn btn-secondary">← Retour</a>
+</div>
+
+<div class="card" id="tsa-card" style="display:none">
+  <div class="card-header"><h3>Horodatage (Time-Stamp Authority)</h3></div>
+  <form id="tsa-form">
+    <div class="form-group">
+      <label class="checkbox-label">
+        <input type="checkbox" id="tsa-enabled">
+        Activer l'horodatage qualifié RFC3161
+      </label>
+      <p class="help-text">
+        Chaque manifest journalier sera soumis à la TSA pour obtenir un token signé.
+        Reconnu comme preuve légale.
+        <strong>À activer explicitement après mise à jour</strong> (conséquences : dépendance externe à la TSA).
+      </p>
+    </div>
+    <div class="form-group">
+      <label for="tsa-url">URL de la TSA</label>
+      <input type="text" id="tsa-url" placeholder="https://freetsa.org/tsr">
+      <p class="help-text">Defaults : <code>https://freetsa.org/tsr</code> (libre, public, reconnu).</p>
+    </div>
+    <div class="form-group">
+      <label for="tsa-retry">Tentatives max en cas d'échec</label>
+      <input type="number" id="tsa-retry" min="1" max="10" value="3">
+    </div>
+    <div style="display:flex;gap:8px">
+      <button type="submit" class="btn btn-primary">Enregistrer</button>
+      <button type="button" class="btn" onclick="testTSA()">Tester (preuve de vie)</button>
+    </div>
+  </form>
+</div>
+
+<div id="chain-root"></div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const isAdmin = () => window.__ME && window.__ME.is_admin;
+
+async function loadTSAConfig() {
+  if (!isAdmin()) return;
+  try {
+    const cfg = await api('GET', '/compliance/chain/tsa-config');
+    document.getElementById('tsa-card').style.display = '';
+    document.getElementById('tsa-enabled').checked = !!cfg.enabled;
+    document.getElementById('tsa-url').value = cfg.url || '';
+    document.getElementById('tsa-retry').value = cfg.retry_max || 3;
+  } catch (e) { /* non-admin */ }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const f = document.getElementById('tsa-form');
+  if (f) f.onsubmit = async (ev) => {
+    ev.preventDefault();
+    try {
+      await api('PUT', '/compliance/chain/tsa-config', {
+        enabled: document.getElementById('tsa-enabled').checked,
+        url: document.getElementById('tsa-url').value.trim(),
+        retry_max: parseInt(document.getElementById('tsa-retry').value, 10) || 3,
+      });
+      showToast('Configuration TSA enregistrée', 'success');
+    } catch (e) {
+      showToast('Erreur : ' + e.message, 'error');
+    }
+  };
+});
+
+async function testTSA() {
+  try {
+    const r = await api('POST', '/compliance/chain/tsa-config/test');
+    if (r.ok) {
+      showToast(`TSA OK : ${r.tsr_size} octets, serial=${r.info?.serial||'?'}`, 'success');
+    } else {
+      showToast('TSA échec : ' + (r.error || 'inconnu'), 'error');
+    }
+  } catch (e) {
+    showToast('Erreur : ' + e.message, 'error');
+  }
+}
+
+async function loadChain() {
+  const root = document.getElementById('chain-root');
+  root.innerHTML = '<div class="text-muted">Chargement…</div>';
+  try {
+    const data = await api('GET', '/compliance/chain');
+    if (!data.spaces.length) {
+      root.innerHTML = '<div class="card"><p class="text-muted">Aucun espace visible.</p></div>';
+      return;
+    }
+    root.innerHTML = data.spaces.map(s => {
+      const rows = s.entries.map(e => `
+        <tr>
+          <td><strong>${e.day}</strong></td>
+          <td><code>${e.manifest_sha256.slice(0, 12)}…</code></td>
+          <td>${e.files_count}</td>
+          <td>${formatBytes(e.total_bytes)}</td>
+          <td>${tsaBadge(e)}</td>
+          <td>${e.tsa_gen_time ? formatDate(e.tsa_gen_time) : '—'}</td>
+          <td style="text-align:right">${
+            e.tsa_status === 'failed' && isAdmin()
+              ? `<button class="btn btn-sm" onclick="retry(${s.space_id},'${e.day}')">Réessayer</button>`
+              : ''
+          }</td>
+        </tr>`).join('');
+      const gapHtml = s.gaps && s.gaps.length
+        ? `<div class="alert alert-danger" style="margin-top:8px">
+             <strong>${s.gaps.length} jour(s) avec logs mais sans manifest</strong> :
+             ${s.gaps.slice(0,10).map(d=>`<code>${d}</code>`).join(' · ')}${s.gaps.length>10?' …':''}
+           </div>`
+        : '';
+      return `
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-header">
+            <h3>${s.space_name} <span class="badge badge-port">port ${s.port}</span></h3>
+            ${s.chain_enabled ? '' : '<span class="badge badge-warning">Chaîne désactivée</span>'}
+          </div>
+          ${gapHtml}
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Jour</th><th>sha256 manifest</th><th>Fichiers</th><th>Taille</th>
+                  <th>TSA</th><th>Horodatage</th><th></th>
+                </tr>
+              </thead>
+              <tbody>${rows || '<tr><td colspan="7" class="text-muted">Aucune entrée.</td></tr>'}</tbody>
+            </table>
+          </div>
+        </div>`;
+    }).join('');
+  } catch (e) {
+    root.innerHTML = `<div class="alert alert-danger">Erreur : ${e.message}</div>`;
+  }
+}
+
+function tsaBadge(e) {
+  switch (e.tsa_status) {
+    case 'ok':               return '<span class="badge badge-success">OK</span>';
+    case 'skipped_backfill': return '<span class="badge">Backfill</span>';
+    case 'failed':           return `<span class="badge badge-danger">Échec (${e.tsa_attempts})</span>`;
+    case 'pending':          return '<span class="badge badge-warning">En attente</span>';
+    default:                 return `<span class="badge">${e.tsa_status}</span>`;
+  }
+}
+
+async function retry(spaceId, day) {
+  try {
+    const r = await api('POST', `/compliance/chain/${spaceId}/${day}/retimestamp`);
+    if (r.ok) showToast('Horodatage réussi', 'success');
+    else showToast('Échec : ' + (r.error || 'inconnu'), 'error');
+    await loadChain();
+  } catch (e) { showToast('Erreur : ' + e.message, 'error'); }
+}
+
+(async () => {
+  // Wait for __ME
+  for (let i=0;i<20;i++) { if (window.__ME) break; await new Promise(r=>setTimeout(r,50)); }
+  await loadTSAConfig();
+  await loadChain();
+})();
+</script>
+{% endblock %}

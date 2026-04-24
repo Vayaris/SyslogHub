@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}Conformité — Syslog Server{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>Tableau de bord conformité</h2>
+    <p class="text-muted">LCEN &amp; RGPD — intégrité, rétention, réquisitions</p>
+  </div>
+</div>
+
+<div class="settings-grid">
+  <a class="card card-link" href="/compliance/chain">
+    <div class="card-header"><h3>Intégrité des logs</h3></div>
+    <p class="text-muted">Hash chaîné journalier + horodatage qualifié TSA (RFC3161).
+    Vérification cryptographique pour toute réquisition.</p>
+    <div id="card-chain-status" class="text-muted">Chargement…</div>
+  </a>
+  <a class="card card-link" href="/compliance/requisitions">
+    <div class="card-header"><h3>Réquisitions judiciaires</h3></div>
+    <p class="text-muted">Extraction de logs pour OPJ : bundle signé avec PV,
+    manifestes, horodatages. Legal hold automatique.</p>
+    <div id="card-req-status" class="text-muted">Chargement…</div>
+  </a>
+  <a class="card card-link" href="/compliance/correlation">
+    <div class="card-header"><h3>Corrélation identité</h3></div>
+    <p class="text-muted">« Qui était sur l'IP X à tel instant ? »
+    DHCP + sessions Omada hotspot.</p>
+    <div class="text-muted">Module v2.0.0</div>
+  </a>
+  <a class="card card-link" href="/compliance/documents">
+    <div class="card-header"><h3>Documents RGPD</h3></div>
+    <p class="text-muted">Registre de traitement art. 30, notice captive portal,
+    rapport annuel de conformité.</p>
+    <div class="text-muted">Prêt à générer</div>
+  </a>
+</div>
+
+<div class="card" style="margin-top:16px">
+  <div class="card-header">
+    <h3>Rétention légale par espace</h3>
+  </div>
+  <p class="text-muted">Durée de conservation configurée pour chaque espace syslog. LCEN impose 1 an minimum pour les opérateurs WiFi public.</p>
+  <div class="table-wrap">
+    <table class="data-table" id="retention-table">
+      <thead>
+        <tr><th>Espace</th><th>Port</th><th>Rétention</th><th>Chaîne</th><th>TSA</th></tr>
+      </thead>
+      <tbody><tr><td colspan="5" class="text-muted">Chargement…</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+(async () => {
+  try {
+    const spaces = await api('GET', '/spaces');
+    const tbody = document.querySelector('#retention-table tbody');
+    if (!spaces.length) {
+      tbody.innerHTML = '<tr><td colspan="5" class="text-muted">Aucun espace.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = spaces.map(s => {
+      const retention = s.retention_days || 365;
+      const chainOn = s.chain_enabled !== false;
+      return `<tr>
+        <td><strong>${s.name}</strong></td>
+        <td>${s.port}</td>
+        <td>${retention} j ${retention>=365?'<span class="badge badge-success">LCEN OK</span>':'<span class="badge badge-warning">&lt; 1 an</span>'}</td>
+        <td>${chainOn?'<span class="badge badge-success">Activée</span>':'<span class="badge">Désactivée</span>'}</td>
+        <td id="tsa-${s.id}">—</td>
+      </tr>`;
+    }).join('');
+  } catch (e) {
+    console.error(e);
+  }
+
+  // Card stats
+  try {
+    const chain = await api('GET', '/compliance/chain');
+    const all = chain.spaces.flatMap(s => s.entries);
+    const ok = all.filter(e => e.tsa_status==='ok').length;
+    const bf = all.filter(e => e.tsa_status==='skipped_backfill').length;
+    const failed = all.filter(e => e.tsa_status==='failed').length;
+    const gapsCount = chain.spaces.reduce((acc, s) => acc + (s.gaps?.length||0), 0);
+    document.getElementById('card-chain-status').innerHTML =
+      `${all.length} manifest(s) · TSA ok: <strong>${ok}</strong> · Backfill: ${bf} · Échecs: <strong>${failed}</strong>` +
+      (gapsCount ? ` · <span class="badge badge-warning">${gapsCount} gap(s)</span>` : '');
+    // Per space TSA badge
+    for (const sp of chain.spaces) {
+      const cell = document.getElementById('tsa-' + sp.space_id);
+      if (!cell) continue;
+      const okn = sp.entries.filter(e => e.tsa_status==='ok').length;
+      const fn = sp.entries.filter(e => e.tsa_status==='failed').length;
+      cell.innerHTML = fn ? `<span class="badge badge-danger">${fn} échec(s)</span>` :
+                       okn ? `<span class="badge badge-success">${okn} OK</span>` :
+                       '<span class="badge">Aucun</span>';
+    }
+  } catch (e) { /* ignore */ }
+})();
+</script>
+{% endblock %}

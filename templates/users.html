@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}Utilisateurs — Syslog Server{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>Utilisateurs &amp; rôles</h2>
+    <p class="text-muted">Gestion des accès multi-utilisateurs (v2.0.0)</p>
+  </div>
+  <button class="btn btn-primary" onclick="openCreateUserModal()">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M12 5v14M5 12h14"/>
+    </svg>
+    Nouvel utilisateur
+  </button>
+</div>
+
+<div id="not-admin-banner" class="alert alert-danger" style="display:none;margin-bottom:16px">
+  <strong>Accès refusé</strong> — cette page est réservée aux administrateurs globaux.
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <h3>Comptes</h3>
+  </div>
+  <div class="table-wrap">
+    <table class="data-table" id="users-table">
+      <thead>
+        <tr>
+          <th>Nom</th>
+          <th>Email</th>
+          <th>Rôle global</th>
+          <th>2FA</th>
+          <th>Origine</th>
+          <th>Dernière connexion</th>
+          <th>Statut</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td colspan="8" class="text-muted">Chargement…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Detail panel : roles par space -->
+<div class="card" id="roles-card" style="display:none;margin-top:16px">
+  <div class="card-header">
+    <h3 id="roles-card-title">Rôles par espace</h3>
+    <button class="btn btn-sm" onclick="closeRolesPanel()">Fermer</button>
+  </div>
+  <div class="form-group" style="display:flex;gap:8px;align-items:end;margin-bottom:12px">
+    <div style="flex:1">
+      <label for="roles-space-select">Ajouter un rôle sur un espace</label>
+      <select id="roles-space-select"></select>
+    </div>
+    <div style="width:160px">
+      <label for="roles-role-select">Rôle</label>
+      <select id="roles-role-select">
+        <option value="readonly">Lecture seule</option>
+        <option value="operator">Opérateur</option>
+        <option value="owner">Propriétaire</option>
+      </select>
+    </div>
+    <button class="btn btn-primary" onclick="addSpaceRole()">Attribuer</button>
+  </div>
+  <div class="table-wrap">
+    <table class="data-table" id="roles-table">
+      <thead>
+        <tr>
+          <th>Espace</th>
+          <th>Rôle</th>
+          <th>Attribué le</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td colspan="4" class="text-muted">—</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Create / edit modal -->
+<div id="user-modal" class="modal-overlay" style="display:none">
+  <div class="modal">
+    <h3 id="user-modal-title">Nouvel utilisateur</h3>
+    <form id="user-form" onsubmit="return submitUserForm(event)">
+      <input type="hidden" id="user-id" value="">
+      <div class="form-group">
+        <label for="user-username">Nom d'utilisateur</label>
+        <input type="text" id="user-username" required maxlength="100">
+      </div>
+      <div class="form-group">
+        <label for="user-email">Email (optionnel)</label>
+        <input type="email" id="user-email" maxlength="255">
+      </div>
+      <div class="form-group">
+        <label for="user-role">Rôle global</label>
+        <select id="user-role">
+          <option value="operator">Opérateur (accès spaces via rôles)</option>
+          <option value="admin">Administrateur (tout accès)</option>
+        </select>
+      </div>
+      <div class="form-group" id="user-password-group">
+        <label for="user-password">Mot de passe <span id="user-password-hint" class="help-text">(min. 8 caractères)</span></label>
+        <input type="password" id="user-password" minlength="8">
+        <p class="help-text">Laissez vide pour un utilisateur SSO (OIDC).</p>
+      </div>
+      <div class="form-group" id="user-disabled-group" style="display:none">
+        <label class="checkbox-label">
+          <input type="checkbox" id="user-disabled">
+          Compte désactivé
+        </label>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary" onclick="closeUserModal()">Annuler</button>
+        <button type="submit" class="btn btn-primary">Enregistrer</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/users.js"></script>
+{% endblock %}

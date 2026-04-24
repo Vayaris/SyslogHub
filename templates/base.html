@@ -31,6 +31,22 @@
           </svg>
           Espaces
         </a>
+        <a href="/compliance" class="nav-item nav-item-admin {% if '/compliance' in request.url.path %}active{% endif %}" style="display:none">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            <path d="m9 12 2 2 4-4"/>
+          </svg>
+          Conformité
+        </a>
+        <a href="/users" class="nav-item nav-item-admin {% if request.url.path == '/users' %}active{% endif %}" style="display:none">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+            <circle cx="9" cy="7" r="4"/>
+            <path d="M22 21v-2a4 4 0 0 0-3-3.87"/>
+            <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+          </svg>
+          Utilisateurs
+        </a>
         <a href="/settings" class="nav-item {% if request.url.path == '/settings' %}active{% endif %}">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="12" cy="12" r="3"/>
@@ -69,6 +85,22 @@
       await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
       window.location = '/login';
     }
+
+    // v2.0.0 — show admin-only nav items for admins.
+    // Exposes window.__ME = { username, role_global, is_admin, ... } for other scripts.
+    (async () => {
+      try {
+        const res = await fetch('/api/auth/me', { credentials: 'same-origin' });
+        if (!res.ok) return;
+        const me = await res.json();
+        window.__ME = me;
+        if (me.is_admin) {
+          document.querySelectorAll('.nav-item-admin').forEach(el => {
+            el.style.display = '';
+          });
+        }
+      } catch (e) { /* ignore — the page will handle 401s */ }
+    })();
   </script>
 </body>
 </html>

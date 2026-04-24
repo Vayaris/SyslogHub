@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block title %}Corrélation identité — Syslog Server{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>Corrélation identité ↔ IP ↔ temps</h2>
+    <p class="text-muted">« Qui était sur l'IP X à telle heure ? » — DHCP + Omada hotspot</p>
+  </div>
+  <a href="/compliance" class="btn btn-secondary">← Retour</a>
+</div>
+
+<div class="card">
+  <div class="card-header"><h3>Recherche</h3></div>
+  <form id="corr-form" onsubmit="return runSearch(event)">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 120px;gap:12px;align-items:end">
+      <div class="form-group">
+        <label for="corr-space">Espace</label>
+        <select id="corr-space" required></select>
+      </div>
+      <div class="form-group">
+        <label for="corr-ip">Adresse IP</label>
+        <input type="text" id="corr-ip" required placeholder="192.168.1.42">
+      </div>
+      <div class="form-group">
+        <label for="corr-at">Moment (UTC)</label>
+        <input type="datetime-local" id="corr-at" required step="1">
+      </div>
+      <div class="form-group">
+        <label for="corr-window">Fenêtre</label>
+        <select id="corr-window">
+          <option value="5">± 5 min</option>
+          <option value="15">± 15 min</option>
+          <option value="30" selected>± 30 min</option>
+          <option value="60">± 1 h</option>
+          <option value="240">± 4 h</option>
+        </select>
+      </div>
+    </div>
+    <div style="margin-top:12px">
+      <button type="submit" class="btn btn-primary">Rechercher</button>
+    </div>
+  </form>
+</div>
+
+<div id="corr-result" style="margin-top:16px"></div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadSpaces() {
+  try {
+    const spaces = await api('GET', '/spaces');
+    const sel = document.getElementById('corr-space');
+    sel.innerHTML = spaces.map(s =>
+      `<option value="${s.id}">${s.name} (port ${s.port})</option>`
+    ).join('');
+  } catch (e) { showToast('Erreur chargement espaces : ' + e.message, 'error'); }
+}
+
+async function runSearch(ev) {
+  ev.preventDefault();
+  const sid = document.getElementById('corr-space').value;
+  const ip  = document.getElementById('corr-ip').value.trim();
+  const at  = document.getElementById('corr-at').value;
+  const win = document.getElementById('corr-window').value;
+
+  if (!at) { showToast('Moment requis', 'error'); return false; }
+  const atISO = new Date(at + ':00Z').toISOString();
+
+  const out = document.getElementById('corr-result');
+  out.innerHTML = '<div class="text-muted">Recherche…</div>';
+  try {
+    const r = await api('GET', `/correlation/who-was-on?space_id=${sid}&ip=${encodeURIComponent(ip)}&at=${encodeURIComponent(atISO)}&window_minutes=${win}`);
+    out.innerHTML = renderResult(r);
+  } catch (e) {
+    out.innerHTML = `<div class="alert alert-danger">${e.message}</div>`;
+  }
+  return false;
+}
+
+function renderResult(r) {
+  const hasData = (r.dhcp_leases?.length || 0) + (r.omada_sessions?.length || 0) > 0;
+  let html = '';
+  html += `<div class="card" style="margin-bottom:16px">
+    <div class="card-header"><h3>${hasData ? 'Résultat' : 'Aucune corrélation'}</h3></div>
+    <p style="font-size:15px;line-height:1.5">${r.narrative || ''}</p>
+  </div>`;
+
+  if (r.dhcp_leases?.length) {
+    html += '<div class="card" style="margin-bottom:16px"><div class="card-header"><h3>Leases DHCP</h3></div><div class="table-wrap"><table class="data-table"><thead><tr><th>MAC</th><th>Hostname</th><th>Vu à</th><th>Fichier source</th></tr></thead><tbody>';
+    for (const l of r.dhcp_leases) {
+      html += `<tr><td><code>${l.mac}</code></td><td>${l.hostname||'—'}</td><td>${formatDate(l.seen_at)}</td><td><code>${l.source_file||'—'}</code></td></tr>`;
+    }
+    html += '</tbody></table></div></div>';
+  }
+
+  if (r.omada_sessions?.length) {
+    html += '<div class="card" style="margin-bottom:16px"><div class="card-header"><h3>Sessions Omada hotspot</h3></div><div class="table-wrap"><table class="data-table"><thead><tr><th>Client MAC</th><th>IP</th><th>Identifiant</th><th>AP</th><th>SSID</th><th>Début</th><th>Dernière vue</th></tr></thead><tbody>';
+    for (const s of r.omada_sessions) {
+      html += `<tr><td><code>${s.client_mac}</code></td><td>${s.client_ip||'—'}</td><td><strong>${s.identifier||'—'}</strong></td><td><code>${s.ap_mac||'—'}</code></td><td>${s.ssid||'—'}</td><td>${formatDate(s.session_start)}</td><td>${s.session_end?formatDate(s.session_end):'active'}</td></tr>`;
+    }
+    html += '</tbody></table></div></div>';
+  }
+
+  if (r.raw_lines?.length) {
+    html += `<div class="card"><div class="card-header"><h3>Extraits de logs bruts (${r.raw_lines.length} lignes)</h3></div><pre style="max-height:320px;overflow:auto;font-size:12px;background:var(--color-bg);padding:8px;border-radius:4px">${r.raw_lines.map(escapeHtml).join('\n')}</pre></div>`;
+  }
+
+  return html;
+}
+
+function escapeHtml(s){return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;"}[c]))}
+
+// Init : mettre l'heure actuelle UTC par défaut
+(async () => {
+  await loadSpaces();
+  const now = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  const utcDT = `${now.getUTCFullYear()}-${pad(now.getUTCMonth()+1)}-${pad(now.getUTCDate())}T${pad(now.getUTCHours())}:${pad(now.getUTCMinutes())}`;
+  document.getElementById('corr-at').value = utcDT;
+})();
+</script>
+{% endblock %}

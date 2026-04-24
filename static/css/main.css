@@ -806,3 +806,15 @@ body {
   .stats-bar { flex-wrap: wrap; }
   .stat-item { min-width: 120px; }
 }
+
+/* v2.0.0 — conformité : cartes cliquables */
+a.card-link {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  transition: border-color .15s, transform .15s;
+}
+a.card-link:hover {
+  border-color: var(--color-primary);
+  transform: translateY(-1px);
+}

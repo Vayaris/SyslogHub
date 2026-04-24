@@ -142,3 +142,94 @@ def send_test_email(smtp: dict, to_email: str) -> None:
         smtp, to_email, "[SyslogHub] Test d'alerte",
         "Ceci est un email de test depuis SyslogHub. Configuration OK.",
     )
+
+
+# ── v2.0.0 — alertes conformité (chain gap / TSA failure / retention overdue) ─
+
+def check_compliance(db: Session) -> dict:
+    """Détecte les trous de conformité et envoie des alertes :
+      - chain_gap     : un jour avec logs mais sans manifest (J-1..J-7)
+      - tsa_failure   : un manifest en échec TSA avec retry_max atteint
+      - legal_hold_long: réquisition exportée depuis >90 jours, pas clôturée
+
+    Non-destructif : chaque alerte est envoyée au max une fois par
+    exécution (pas de déduplication inter-run, bonne pratique : lancer
+    ce check une fois par jour depuis le timer existant)."""
+    from datetime import datetime, timedelta, timezone
+    from ..models import LogChain, Requisition
+    from . import chain as chain_svc
+
+    settings = get_settings(db)
+    if settings.get("alerts_global_enabled", "false") != "true":
+        return {"skipped": "alerts_global_enabled=false"}
+
+    alerts_sent = 0
+    to_default = settings.get("smtp_default_to")
+    if not to_default or not settings.get("smtp_host"):
+        return {"skipped": "smtp_not_configured"}
+
+    def _send(subject, body):
+        nonlocal alerts_sent
+        try:
+            send_email(settings, to_default, subject, body)
+            alerts_sent += 1
+        except Exception as e:
+            _log.warning(f"compliance alert send failed: {e}")
+
+    # 1. chain_gap
+    spaces = db.query(Space).filter(Space.enabled == True,                   # noqa: E712
+                                    Space.chain_enabled == True).all()       # noqa: E712
+    for sp in spaces:
+        gaps = chain_svc.detect_gaps(db, sp, days_back=7)
+        if gaps:
+            _send(
+                f"[SyslogHub] Trou de chaîne d'intégrité — {sp.name}",
+                f"L'espace {sp.name} (port {sp.port}) a des logs sans manifest "
+                f"d'intégrité sur les jours : {', '.join(gaps)}.\n\n"
+                f"Impact légal : les preuves d'intégrité ne sont pas disponibles "
+                f"pour ces jours. Vérifier le timer syslog-chain.timer :\n"
+                f"  systemctl status syslog-chain.timer\n"
+                f"  journalctl -u syslog-chain.service -n 50",
+            )
+
+    # 2. tsa_failure
+    from sqlalchemy import func
+    fail_rows = (
+        db.query(LogChain)
+          .filter(LogChain.tsa_status == "failed",
+                  LogChain.tsa_attempts >= 3)
+          .all()
+    )
+    if fail_rows:
+        lines = [f"  - space {r.space_id} — jour {r.day} — {r.tsa_last_error}"
+                 for r in fail_rows[:20]]
+        _send(
+            f"[SyslogHub] Horodatage TSA en échec — {len(fail_rows)} manifest(s)",
+            "Les manifests suivants n'ont pas pu être horodatés après épuisement "
+            "du budget de retry :\n\n" + "\n".join(lines) +
+            "\n\nLeur chaîne d'intégrité reste valable localement, mais l'horodatage "
+            "qualifié manque — vérifier la connectivité vers la TSA et relancer "
+            "depuis la page /compliance/chain.",
+        )
+
+    # 3. legal_hold_long (réquisitions exportées mais jamais clôturées)
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=90)).isoformat()
+    old_reqs = (
+        db.query(Requisition)
+          .filter(Requisition.status == "exported",
+                  Requisition.exported_at < cutoff)
+          .all()
+    )
+    if old_reqs:
+        lines = [f"  - réquisition n° {r.number} (OPJ : {r.opj_name}) "
+                 f"exportée le {r.exported_at}" for r in old_reqs[:20]]
+        _send(
+            f"[SyslogHub] Legal holds anciens non clôturés — {len(old_reqs)}",
+            "Les réquisitions suivantes ont été exportées depuis plus de 90 jours "
+            "sans clôture — leur legal_hold empêche la purge des logs concernés :\n\n"
+            + "\n".join(lines) +
+            "\n\nÉvaluer avec l'OPJ si elles peuvent être clôturées pour libérer "
+            "la rétention.",
+        )
+
+    return {"alerts_sent": alerts_sent}

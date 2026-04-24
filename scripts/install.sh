@@ -452,12 +452,107 @@ Persistent=true
 WantedBy=timers.target
 ALERT_TIMER
 
+# v2.0.0 — timer chaîne d'intégrité (quotidien 00:05 UTC)
+cat > /etc/systemd/system/syslog-chain.service << 'CHAIN_SVC'
+[Unit]
+Description=SyslogHub — build daily integrity chain + TSA timestamp
+
+[Service]
+Type=oneshot
+ExecStart=/opt/syslog-server/venv/bin/python3 /opt/syslog-server/scripts/chain_daily.py
+User=root
+StandardOutput=journal
+SyslogIdentifier=syslog-chain
+CHAIN_SVC
+
+cat > /etc/systemd/system/syslog-chain.timer << 'CHAIN_TMR'
+[Unit]
+Description=SyslogHub — daily integrity chain timer
+
+[Timer]
+OnCalendar=*-*-* 00:05:00
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target
+CHAIN_TMR
+
+# v2.0.0 — timer DHCP sweep (quotidien 00:30 UTC)
+cat > /etc/systemd/system/syslog-dhcp-sweep.service << 'DHCP_SVC'
+[Unit]
+Description=SyslogHub — nightly DHCP lease parsing
+
+[Service]
+Type=oneshot
+ExecStart=/opt/syslog-server/venv/bin/python3 /opt/syslog-server/scripts/dhcp_sweep.py
+User=root
+StandardOutput=journal
+SyslogIdentifier=syslog-dhcp-sweep
+DHCP_SVC
+
+cat > /etc/systemd/system/syslog-dhcp-sweep.timer << 'DHCP_TMR'
+[Unit]
+Description=SyslogHub — DHCP sweep timer
+
+[Timer]
+OnCalendar=*-*-* 00:30:00
+Persistent=true
+RandomizedDelaySec=90
+
+[Install]
+WantedBy=timers.target
+DHCP_TMR
+
+# v2.0.0 — timer Omada sync (toutes les 5 min)
+cat > /etc/systemd/system/syslog-omada-sync.service << 'OMSYNC_SVC'
+[Unit]
+Description=SyslogHub — Omada hotspot session sync
+
+[Service]
+Type=oneshot
+ExecStart=/opt/syslog-server/venv/bin/python3 /opt/syslog-server/scripts/omada_sync.py
+User=root
+StandardOutput=journal
+SyslogIdentifier=syslog-omada-sync
+OMSYNC_SVC
+
+cat > /etc/systemd/system/syslog-omada-sync.timer << 'OMSYNC_TMR'
+[Unit]
+Description=SyslogHub — Omada sync timer (every 5 min)
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+RandomizedDelaySec=30
+
+[Install]
+WantedBy=timers.target
+OMSYNC_TMR
+
+# v2.0.0 — CA FreeTSA + dossiers branding/réquisitions
+mkdir -p /opt/syslog-server/config/tsa /opt/syslog-server/data/branding /opt/syslog-server/data/requisitions
+chmod 0750 /opt/syslog-server/data/requisitions
+if [[ ! -f /opt/syslog-server/config/tsa/freetsa-ca.pem ]]; then
+    curl -sS --max-time 15 -o /tmp/freetsa-ca.pem https://freetsa.org/files/cacert.pem 2>/dev/null || true
+    if head -1 /tmp/freetsa-ca.pem 2>/dev/null | grep -q "BEGIN CERTIFICATE"; then
+        mv /tmp/freetsa-ca.pem /opt/syslog-server/config/tsa/freetsa-ca.pem
+        chmod 0644 /opt/syslog-server/config/tsa/freetsa-ca.pem
+    fi
+fi
+
 systemctl daemon-reload
 systemctl enable syslog-server --quiet
 systemctl enable syslog-retention.timer --quiet
 systemctl enable syslog-alerts.timer --quiet
+systemctl enable syslog-chain.timer --quiet
+systemctl enable syslog-dhcp-sweep.timer --quiet
+systemctl enable syslog-omada-sync.timer --quiet
 systemctl start syslog-server
 systemctl start syslog-alerts.timer
+systemctl start syslog-chain.timer
+systemctl start syslog-dhcp-sweep.timer
+systemctl start syslog-omada-sync.timer
 success "Service systemd démarré"
 
 # ── ÉTAPE 13 : Permissions finales ────────────────────────────────────────────

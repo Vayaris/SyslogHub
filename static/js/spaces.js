@@ -132,11 +132,13 @@ if (document.getElementById('space-form')) {
 
     const omada = collectOmadaFields();
     const alerts = collectAlertFields();
+    const compliance = collectComplianceFields();
 
     try {
       if (typeof MODE !== 'undefined' && MODE === 'edit') {
         await api('PUT', `/spaces/${SPACE_ID}`, {
-          name, description, allowed_ip, tcp_enabled, lan_mode, ...omada, ...alerts,
+          name, description, allowed_ip, tcp_enabled, lan_mode,
+          ...omada, ...alerts, ...compliance,
         });
         showToast('Espace mis à jour', 'success');
         window.location = '/spaces';
@@ -144,7 +146,8 @@ if (document.getElementById('space-form')) {
         const port = parseInt(document.getElementById('port').value, 10);
         if (!port || port < 1 || port > 65535) throw new Error('Port invalide (1-65535)');
         await api('POST', '/spaces', {
-          name, port, description, allowed_ip, tcp_enabled, lan_mode, ...omada, ...alerts,
+          name, port, description, allowed_ip, tcp_enabled, lan_mode,
+          ...omada, ...alerts, ...compliance,
         });
         showToast('Espace créé', 'success');
         window.location = '/spaces';
@@ -154,6 +157,71 @@ if (document.getElementById('space-form')) {
       errEl.style.display = 'block';
       btn.disabled = false;
     }
+  });
+}
+
+// ── v2.0.0 — Compliance fields on space edit form ───────────────────────────
+function collectComplianceFields() {
+  const retentionEl = document.getElementById('retention-days');
+  if (!retentionEl) return {};
+  const retention = parseInt(retentionEl.value, 10);
+  const colorEl = document.getElementById('branding-color');
+  return {
+    retention_days:     (retention && retention > 0) ? retention : 365,
+    chain_enabled:      !!(document.getElementById('chain-enabled')?.checked),
+    dhcp_parse_enabled: !!(document.getElementById('dhcp-parse-enabled')?.checked),
+    omada_sync_enabled: !!(document.getElementById('omada-sync-enabled')?.checked),
+    branding_color:     colorEl ? (colorEl.value.trim() || null) : null,
+  };
+}
+
+// v2.0.0 — branding logo upload
+async function uploadBrandingLogo() {
+  const f = document.getElementById('branding-logo-file').files[0];
+  if (!f) { showToast('Choisissez un fichier', 'error'); return; }
+  if (f.size > 256*1024) { showToast('Fichier trop gros (max 256 KB)', 'error'); return; }
+  const fd = new FormData();
+  fd.append('file', f);
+  try {
+    const res = await fetch(`/api/spaces/${SPACE_ID}/branding/logo`, {
+      method: 'POST', body: fd, credentials: 'same-origin',
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({detail:'Erreur'}));
+      throw new Error(err.detail || 'Erreur upload');
+    }
+    const data = await res.json();
+    showToast('Logo uploadé', 'success');
+    // Rafraîchir l'aperçu
+    const preview = document.getElementById('branding-logo-preview');
+    preview.innerHTML = `<img src="${data.path}?t=${Date.now()}" alt="logo" style="max-width:100%;max-height:100%">`;
+  } catch (e) { showToast('Erreur : ' + e.message, 'error'); }
+}
+
+async function deleteBrandingLogo() {
+  if (!confirm('Retirer le logo ?')) return;
+  try {
+    await api('DELETE', `/spaces/${SPACE_ID}/branding/logo`);
+    showToast('Logo retiré', 'success');
+    document.getElementById('branding-logo-preview').innerHTML =
+      '<span style="font-size:11px;color:var(--color-text-muted)">—</span>';
+  } catch (e) { showToast('Erreur : ' + e.message, 'error'); }
+}
+
+// v2.0.0 — sync preset ↔ custom input
+if (document.getElementById('retention-days-preset')) {
+  const preset = document.getElementById('retention-days-preset');
+  const input  = document.getElementById('retention-days');
+  // Initialise le preset en fonction de la valeur actuelle
+  const cur = parseInt(input.value, 10);
+  if (cur === 180 || cur === 365 || cur === 1095) preset.value = String(cur);
+  else preset.value = 'custom';
+  preset.addEventListener('change', () => {
+    if (preset.value !== 'custom') input.value = preset.value;
+  });
+  input.addEventListener('input', () => {
+    const v = parseInt(input.value, 10);
+    preset.value = (v === 180 || v === 365 || v === 1095) ? String(v) : 'custom';
   });
 }
 
