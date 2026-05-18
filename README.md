@@ -19,6 +19,28 @@ Serveur SYSLOG centralisé avec interface web HTTPS — simple à déployer, fac
 - **Bouton "Envoyer un log test"** : sur la page des sources d'un espace, envoie un syslog UDP depuis `127.0.0.1` avec un message personnalisable, pour vérifier que la réception est active et que la chaîne rsyslog → fichier fonctionne. Refuse l'envoi avec un message clair si l'espace a une allowlist incompatible.
 - **Alertes "no-logs"** : notification email (SMTP Gmail / App Password) + webhook si un espace ne reçoit plus de logs depuis *X* heures (défaut 24h). Une alerte au passage DOWN, une alerte de retour (RECOVERY). Seuil, destinataire et webhook configurables par espace.
 
+## Nouveautés v3.0.0 — Modernisation UI + compatibilité dépendances
+
+Mise à jour majeure des dépendances et refonte de l'interface utilisateur.
+
+### Compatibilité et dépendances
+- **FastAPI 0.136+** : mise à jour majeure, API entièrement compatible
+- **Starlette 1.x** : nouveau helper `render_template()` interne — la signature `TemplateResponse` a changé dans Starlette 1.0, le projet s'adapte de manière transparente
+- **Authlib 1.7** et **python-multipart 0.0.26** : correctifs de sécurité et stabilité
+- `requirements.txt` versionné pour reproductibilité des déploiements
+
+### Interface utilisateur
+- **Cartes d'espaces redessinées** : hauteur minimale fixe, titres et descriptions alignés, boutons d'action sur grille propre — plus de cartes de taille variable
+- **Favicon SVG** : icône vectorielle dans l'onglet navigateur
+- **Page Paramètres** : barre de navigation flottante par section (Général, Alertes, SMTP, OIDC, 2FA, Audit, Sessions), fond semi-transparent `backdrop-filter` — navigation sans scroll sur les grandes pages
+- **Cache-busting** CSS/JS via paramètre de version dans les URLs statiques
+
+### Corrections
+- Descriptions manquantes sur les cartes d'espaces : affichage « Aucune description » au lieu d'un espace vide
+- Boutons d'action des cartes d'espaces : grille `1fr auto` évite les débordements sur les noms longs
+
+---
+
 ## Nouveautés v2.0.0 — Conformité LCEN/RGPD pour WiFi public
 
 Release majeure. SyslogHub devient une solution clé en main pour les opérateurs soumis à la **conservation légale des données de connexion** (hôtels, bars, franchises, lieux publics) — alternative open-source aux appliances commerciales type Ucopia.

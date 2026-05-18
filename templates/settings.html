@@ -5,245 +5,288 @@
 <div class="page-header">
   <div>
     <h2>Paramètres</h2>
-    <p class="text-muted">Configuration du serveur</p>
+    <p class="text-muted">Configuration du serveur, des accès et des notifications</p>
   </div>
 </div>
 
-<div id="password-must-change-banner" class="alert alert-danger" style="display:none;margin-bottom:16px">
-  <strong>🔒 Mot de passe par défaut détecté</strong><br>
+<div id="password-must-change-banner" class="alert alert-danger settings-alert" style="display:none">
+  <strong>Mot de passe par défaut détecté</strong><br>
   Vous utilisez le mot de passe d'installation <code>changeme</code>. Tant qu'il
   n'est pas modifié, l'accès au reste de l'application est bloqué.
   Rendez-vous dans <strong>Sécurité</strong> ci-dessous et définissez un nouveau
   mot de passe.
 </div>
 
-<div class="settings-grid">
-  <!-- General settings -->
-  <div class="card">
-    <div class="card-header">
-      <h3>Général</h3>
-    </div>
-    <form id="general-form">
-      <div class="form-group">
-        <label for="retention-days">Rétention des logs (jours)</label>
-        <input type="number" id="retention-days" min="1" max="3650" placeholder="90">
-        <p class="help-text">Les logs plus anciens seront supprimés automatiquement.</p>
-      </div>
-      <button type="submit" class="btn btn-primary">Enregistrer</button>
-    </form>
-  </div>
+<nav class="settings-nav" aria-label="Sections des paramètres">
+  <a href="#settings-system">Système</a>
+  <a href="#settings-security">Accès</a>
+  <a href="#settings-alerts">Notifications</a>
+  <a href="#settings-activity">Activité</a>
+</nav>
 
-  <!-- Security settings -->
-  <div class="card">
-    <div class="card-header">
-      <h3>Sécurité</h3>
+<div class="settings-page">
+  <section id="settings-system" class="settings-section">
+    <div class="settings-section-header">
+      <div>
+        <h3>Système</h3>
+        <p class="text-muted">État des services et paramètres de conservation.</p>
+      </div>
     </div>
-    <form id="security-form">
-      <div class="form-group">
-        <label for="admin-username">Nom d'utilisateur</label>
-        <input type="text" id="admin-username" maxlength="64" placeholder="admin">
-      </div>
-      <hr class="divider">
-      <div class="form-group">
-        <label for="current-password">Mot de passe actuel</label>
-        <input type="password" id="current-password" placeholder="••••••••">
-      </div>
-      <div class="form-group">
-        <label for="new-password">Nouveau mot de passe</label>
-        <input type="password" id="new-password" placeholder="••••••••" minlength="6">
-      </div>
-      <div class="form-group">
-        <label for="confirm-password">Confirmer le mot de passe</label>
-        <input type="password" id="confirm-password" placeholder="••••••••">
-      </div>
-      <p class="help-text">Laissez les champs de mot de passe vides pour conserver l'actuel.</p>
-      <button type="submit" class="btn btn-primary">Enregistrer</button>
-    </form>
-  </div>
 
-  <!-- Alerts -->
-  <div class="card">
-    <div class="card-header">
-      <h3>Alertes</h3>
-    </div>
-    <form id="alerts-form">
-      <div class="form-group">
-        <label class="checkbox-label">
-          <input type="checkbox" id="alerts-enabled">
-          Activer le système d'alertes
-        </label>
-        <p class="help-text">Kill-switch global. Les alertes par-espace ne sont envoyées que si activé.</p>
+    <div class="settings-grid">
+      <div class="card">
+        <div class="card-header">
+          <h3>État du système</h3>
+          <button class="btn btn-secondary btn-sm" onclick="loadStatus()">Rafraîchir</button>
+        </div>
+        <div id="status-content">
+          <div class="loading-placeholder">Chargement…</div>
+        </div>
       </div>
-      <div class="form-group">
-        <label for="smtp-host">Serveur SMTP</label>
-        <input type="text" id="smtp-host" placeholder="smtp.gmail.com">
-      </div>
-      <div class="form-group">
-        <label for="smtp-port">Port SMTP</label>
-        <input type="number" id="smtp-port" min="1" max="65535" placeholder="587">
-      </div>
-      <div class="form-group">
-        <label for="smtp-username">Utilisateur SMTP</label>
-        <input type="text" id="smtp-username" placeholder="alerts@monorg.com">
-      </div>
-      <div class="form-group">
-        <label for="smtp-password">Mot de passe / App Password</label>
-        <input type="password" id="smtp-password" placeholder="••••••••">
-        <p class="help-text">Gmail : créer un App Password (2FA requis). Laissez vide pour conserver l'actuel.</p>
-      </div>
-      <div class="form-group">
-        <label for="smtp-from">Adresse expéditrice (From)</label>
-        <input type="text" id="smtp-from" placeholder="alerts@monorg.com">
-      </div>
-      <div class="form-group">
-        <label for="smtp-default-to">Destinataire par défaut</label>
-        <input type="text" id="smtp-default-to" placeholder="admin@monorg.com">
-        <p class="help-text">Utilisé si un espace ne spécifie pas de destinataire propre.</p>
-      </div>
-      <div class="form-actions" style="display:flex;gap:8px">
-        <button type="button" class="btn btn-secondary" onclick="testAlerts()">Tester</button>
-        <button type="submit" class="btn btn-primary">Enregistrer</button>
-      </div>
-    </form>
-  </div>
 
-  <!-- System status -->
-  <div class="card">
-    <div class="card-header">
-      <h3>État du système</h3>
-      <button class="btn btn-secondary btn-sm" onclick="loadStatus()">Rafraîchir</button>
+      <div class="card">
+        <div class="card-header">
+          <h3>Conservation</h3>
+        </div>
+        <form id="general-form">
+          <div class="form-group">
+            <label for="retention-days">Rétention globale historique</label>
+            <input type="number" id="retention-days" min="1" max="3650" placeholder="365">
+            <p class="help-text">Utilisée par les anciennes tâches. La v2 gère aussi la rétention par espace.</p>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Enregistrer</button>
+          </div>
+        </form>
+      </div>
     </div>
-    <div id="status-content">
-      <div class="loading-placeholder">Chargement…</div>
-    </div>
-  </div>
+  </section>
 
-  <!-- OIDC / SSO -->
-  <div class="card">
-    <div class="card-header">
-      <h3>Authentification SSO (OIDC)</h3>
-      <span class="badge" id="oidc-status-badge">…</span>
+  <section id="settings-security" class="settings-section">
+    <div class="settings-section-header">
+      <div>
+        <h3>Accès et sécurité</h3>
+        <p class="text-muted">Compte local, double authentification et authentification externe.</p>
+      </div>
     </div>
-    <p class="help-text">
-      Authentification via un fournisseur externe (Authentik, Keycloak, Google Workspace…).
-      Seuls les emails correspondant à la liste blanche sont autorisés. Première
-      connexion réussie = accès admin.
-    </p>
-    <form id="oidc-form">
-      <div class="form-group">
-        <label class="checkbox-label">
-          <input type="checkbox" id="oidc-enabled">
-          Activer OIDC/SSO
-        </label>
+
+    <div class="settings-grid">
+      <div class="card">
+        <div class="card-header">
+          <h3>Compte local</h3>
+        </div>
+        <form id="security-form">
+          <div class="form-group">
+            <label for="admin-username">Nom d'utilisateur</label>
+            <input type="text" id="admin-username" maxlength="64" placeholder="admin">
+          </div>
+          <hr class="divider">
+          <div class="settings-form-grid">
+            <div class="form-group">
+              <label for="current-password">Mot de passe actuel</label>
+              <input type="password" id="current-password" placeholder="••••••••">
+            </div>
+            <div class="form-group">
+              <label for="new-password">Nouveau mot de passe</label>
+              <input type="password" id="new-password" placeholder="••••••••" minlength="6">
+            </div>
+            <div class="form-group">
+              <label for="confirm-password">Confirmer le mot de passe</label>
+              <input type="password" id="confirm-password" placeholder="••••••••">
+            </div>
+          </div>
+          <p class="help-text">Laissez les champs de mot de passe vides pour conserver l'actuel.</p>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Enregistrer</button>
+          </div>
+        </form>
       </div>
-      <div class="form-group">
-        <label for="oidc-discovery">Discovery URL (.well-known/openid-configuration)</label>
-        <input type="text" id="oidc-discovery" placeholder="https://auth.example.com/.well-known/openid-configuration">
-      </div>
-      <div class="form-group">
-        <label for="oidc-client-id">Client ID</label>
-        <input type="text" id="oidc-client-id">
-      </div>
-      <div class="form-group">
-        <label for="oidc-client-secret">Client Secret</label>
-        <input type="password" id="oidc-client-secret" placeholder="••••••••">
-        <p class="help-text">Laissez vide pour conserver le secret actuel.</p>
-      </div>
-      <div class="form-group">
-        <label for="oidc-allowlist">Allowlist emails / domaines</label>
-        <input type="text" id="oidc-allowlist" placeholder="*@mycompany.com, bob@example.com">
-        <p class="help-text">Une entrée par virgule. <code>*@domaine.tld</code> autorise un domaine entier.</p>
-      </div>
-      <div class="form-group">
-        <label for="oidc-label">Libellé du bouton (optionnel)</label>
-        <input type="text" id="oidc-label" placeholder="Se connecter via SSO">
-      </div>
-      <div class="form-group">
-        <label class="checkbox-label">
-          <input type="checkbox" id="oidc-require-verified" checked>
-          Exiger <code>email_verified</code> de l'IdP
-        </label>
+
+      <div class="card">
+        <div class="card-header">
+          <h3>Double authentification</h3>
+          <span class="badge" id="totp-status-badge">…</span>
+        </div>
         <p class="help-text">
-          Refuse les utilisateurs dont l'IdP ne certifie pas leur adresse email.
-          Décochez uniquement si votre IdP n'émet pas ce claim (rare).
+          Ajoutez un code à 6 chiffres généré par une application au moment de la connexion locale.
         </p>
+        <div id="totp-setup" style="display:none"></div>
+        <div class="form-actions settings-actions-left">
+          <button type="button" class="btn btn-primary" id="totp-activate-btn" onclick="startTotpSetup()">
+            Activer la 2FA
+          </button>
+          <button type="button" class="btn btn-danger" id="totp-disable-btn" onclick="openTotpDisable()" style="display:none">
+            Désactiver
+          </button>
+        </div>
       </div>
-      <div class="form-actions">
-        <button type="submit" class="btn btn-primary">Enregistrer</button>
+
+      <div class="card card-wide">
+        <div class="card-header">
+          <h3>Authentification SSO (OIDC)</h3>
+          <span class="badge" id="oidc-status-badge">…</span>
+        </div>
+        <p class="help-text">
+          Authentification via un fournisseur externe. Seuls les emails correspondant à la liste blanche sont autorisés.
+        </p>
+        <form id="oidc-form">
+          <div class="settings-form-grid">
+            <div class="form-group">
+              <label class="checkbox-label">
+                <input type="checkbox" id="oidc-enabled">
+                Activer OIDC/SSO
+              </label>
+            </div>
+            <div class="form-group">
+              <label for="oidc-label">Libellé du bouton</label>
+              <input type="text" id="oidc-label" placeholder="Se connecter via SSO">
+            </div>
+            <div class="form-group settings-field-wide">
+              <label for="oidc-discovery">Discovery URL</label>
+              <input type="text" id="oidc-discovery" placeholder="https://auth.example.com/.well-known/openid-configuration">
+            </div>
+            <div class="form-group">
+              <label for="oidc-client-id">Client ID</label>
+              <input type="text" id="oidc-client-id">
+            </div>
+            <div class="form-group">
+              <label for="oidc-client-secret">Client Secret</label>
+              <input type="password" id="oidc-client-secret" placeholder="••••••••">
+              <p class="help-text">Laissez vide pour conserver le secret actuel.</p>
+            </div>
+            <div class="form-group settings-field-wide">
+              <label for="oidc-allowlist">Allowlist emails / domaines</label>
+              <input type="text" id="oidc-allowlist" placeholder="*@mycompany.com, bob@example.com">
+              <p class="help-text">Une entrée par virgule. <code>*@domaine.tld</code> autorise un domaine entier.</p>
+            </div>
+            <div class="form-group settings-field-wide">
+              <label class="checkbox-label">
+                <input type="checkbox" id="oidc-require-verified" checked>
+                Exiger <code>email_verified</code> de l'IdP
+              </label>
+            </div>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Enregistrer</button>
+          </div>
+        </form>
       </div>
-    </form>
-  </div>
-
-  <!-- Two-factor auth (TOTP) -->
-  <div class="card">
-    <div class="card-header">
-      <h3>Double authentification (2FA)</h3>
-      <span class="badge" id="totp-status-badge">…</span>
     </div>
-    <p class="help-text">
-      Ajoutez un code à 6 chiffres généré par une application (Google Authenticator,
-      Authy, 1Password…) au moment de la connexion locale. N'affecte pas le SSO.
-    </p>
-    <div id="totp-setup" style="display:none"></div>
-    <div class="form-actions" style="display:flex;gap:8px">
-      <button type="button" class="btn btn-primary" id="totp-activate-btn" onclick="startTotpSetup()">
-        Activer la 2FA
-      </button>
-      <button type="button" class="btn btn-danger" id="totp-disable-btn" onclick="openTotpDisable()" style="display:none">
-        Désactiver
-      </button>
-    </div>
-  </div>
+  </section>
 
-  <!-- Active sessions -->
-  <div class="card card-wide">
-    <div class="card-header">
-      <h3>Sessions actives</h3>
-      <div style="display:flex;gap:8px">
-        <button class="btn btn-secondary btn-sm" onclick="loadSessions()">Rafraîchir</button>
-        <button class="btn btn-danger btn-sm" onclick="revokeOtherSessions()">Révoquer toutes les autres</button>
+  <section id="settings-alerts" class="settings-section">
+    <div class="settings-section-header">
+      <div>
+        <h3>Notifications</h3>
+        <p class="text-muted">Alertes globales et configuration SMTP.</p>
       </div>
     </div>
-    <p class="help-text">
-      Chaque connexion (navigateur / appareil) crée une session. Vous pouvez en révoquer une sans changer votre mot de passe.
-    </p>
-    <div id="sessions-content">
-      <div class="loading-placeholder">Chargement…</div>
-    </div>
-  </div>
 
-  <!-- Audit log -->
-  <div class="card card-wide">
-    <div class="card-header">
-      <h3>Audit</h3>
-      <button class="btn btn-secondary btn-sm" onclick="loadAudit()">Rafraîchir</button>
+    <div class="card">
+      <div class="card-header">
+        <h3>Alertes SMTP</h3>
+      </div>
+      <form id="alerts-form">
+        <div class="settings-form-grid">
+          <div class="form-group settings-field-wide">
+            <label class="checkbox-label">
+              <input type="checkbox" id="alerts-enabled">
+              Activer le système d'alertes
+            </label>
+            <p class="help-text">Les alertes par espace ne sont envoyées que si ce réglage global est activé.</p>
+          </div>
+          <div class="form-group">
+            <label for="smtp-host">Serveur SMTP</label>
+            <input type="text" id="smtp-host" placeholder="smtp.gmail.com">
+          </div>
+          <div class="form-group">
+            <label for="smtp-port">Port SMTP</label>
+            <input type="number" id="smtp-port" min="1" max="65535" placeholder="587">
+          </div>
+          <div class="form-group">
+            <label for="smtp-username">Utilisateur SMTP</label>
+            <input type="text" id="smtp-username" placeholder="alerts@monorg.com">
+          </div>
+          <div class="form-group">
+            <label for="smtp-password">Mot de passe / App Password</label>
+            <input type="password" id="smtp-password" placeholder="••••••••">
+            <p class="help-text">Laissez vide pour conserver l'actuel.</p>
+          </div>
+          <div class="form-group">
+            <label for="smtp-from">Adresse expéditrice</label>
+            <input type="text" id="smtp-from" placeholder="alerts@monorg.com">
+          </div>
+          <div class="form-group">
+            <label for="smtp-default-to">Destinataire par défaut</label>
+            <input type="text" id="smtp-default-to" placeholder="admin@monorg.com">
+            <p class="help-text">Utilisé si un espace ne spécifie pas de destinataire propre.</p>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn btn-secondary" onclick="testAlerts()">Tester</button>
+          <button type="submit" class="btn btn-primary">Enregistrer</button>
+        </div>
+      </form>
     </div>
-    <div class="audit-filters">
-      <select id="audit-action" onchange="loadAudit(1)">
-        <option value="">Toutes les actions</option>
-        <option value="login">login</option>
-        <option value="login_failed">login_failed</option>
-        <option value="logout">logout</option>
-        <option value="password_change">password_change</option>
-        <option value="settings_update">settings_update</option>
-        <option value="alerts_update">alerts_update</option>
-        <option value="alerts_test">alerts_test</option>
-        <option value="space_create">space_create</option>
-        <option value="space_update">space_update</option>
-        <option value="space_delete">space_delete</option>
-        <option value="source_delete">source_delete</option>
-        <option value="test_log_send">test_log_send</option>
-        <option value="audit_purge">audit_purge</option>
-      </select>
-      <input type="text" id="audit-username" placeholder="utilisateur" onchange="loadAudit(1)">
-      <p class="help-text">Traces conservées 180 jours maximum.</p>
-    </div>
-    <div id="audit-content">
-      <div class="loading-placeholder">Chargement…</div>
-    </div>
-    <div id="audit-pagination" class="audit-pagination"></div>
-  </div>
+  </section>
 
+  <section id="settings-activity" class="settings-section">
+    <div class="settings-section-header">
+      <div>
+        <h3>Activité</h3>
+        <p class="text-muted">Sessions ouvertes et journal d'audit.</p>
+      </div>
+    </div>
+
+    <div class="settings-stack">
+      <div class="card">
+        <div class="card-header">
+          <h3>Sessions actives</h3>
+          <div class="settings-header-actions">
+            <button class="btn btn-secondary btn-sm" onclick="loadSessions()">Rafraîchir</button>
+            <button class="btn btn-danger btn-sm" onclick="revokeOtherSessions()">Révoquer les autres</button>
+          </div>
+        </div>
+        <p class="help-text">
+          Chaque connexion crée une session. Vous pouvez en révoquer une sans changer votre mot de passe.
+        </p>
+        <div id="sessions-content">
+          <div class="loading-placeholder">Chargement…</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h3>Audit</h3>
+          <button class="btn btn-secondary btn-sm" onclick="loadAudit()">Rafraîchir</button>
+        </div>
+        <div class="audit-filters">
+          <select id="audit-action" onchange="loadAudit(1)">
+            <option value="">Toutes les actions</option>
+            <option value="login">login</option>
+            <option value="login_failed">login_failed</option>
+            <option value="logout">logout</option>
+            <option value="password_change">password_change</option>
+            <option value="settings_update">settings_update</option>
+            <option value="alerts_update">alerts_update</option>
+            <option value="alerts_test">alerts_test</option>
+            <option value="space_create">space_create</option>
+            <option value="space_update">space_update</option>
+            <option value="space_delete">space_delete</option>
+            <option value="source_delete">source_delete</option>
+            <option value="test_log_send">test_log_send</option>
+            <option value="audit_purge">audit_purge</option>
+          </select>
+          <input type="text" id="audit-username" placeholder="utilisateur" onchange="loadAudit(1)">
+          <p class="help-text">Traces conservées 180 jours maximum.</p>
+        </div>
+        <div id="audit-content">
+          <div class="loading-placeholder">Chargement…</div>
+        </div>
+        <div id="audit-pagination" class="audit-pagination"></div>
+      </div>
+    </div>
+  </section>
 </div>
 {% endblock %}
 

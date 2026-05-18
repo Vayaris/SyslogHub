@@ -45,7 +45,7 @@ function renderSpaces(spaces) {
   grid.innerHTML = spaces.map(s => `
     <div class="space-card" id="card-${s.id}">
       <div class="space-card-header">
-        <div>
+        <div class="space-card-main">
           <div class="space-card-title">${escHtml(s.name)}</div>
           <div class="space-card-port">UDP :${s.port}</div>
         </div>
@@ -55,7 +55,7 @@ function renderSpaces(spaces) {
           <span class="toggle-slider"></span>
         </label>
       </div>
-      ${s.description ? `<p class="text-muted" style="margin-bottom:10px">${escHtml(s.description)}</p>` : ''}
+      <p class="space-card-description">${s.description ? escHtml(s.description) : 'Aucune description'}</p>
       <div class="space-card-stats">
         <div class="space-stat">
           <span class="space-stat-label">Sources</span>
@@ -71,7 +71,7 @@ function renderSpaces(spaces) {
         </div>
       </div>
       <div class="space-card-actions">
-        <a href="/logs/${s.id}" class="btn btn-primary btn-sm" style="flex:1;justify-content:center">
+        <a href="/logs/${s.id}" class="btn btn-primary btn-sm">
           Voir les logs
         </a>
         <a href="/spaces/${s.id}/edit" class="btn btn-secondary btn-sm">Modifier</a>

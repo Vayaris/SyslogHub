@@ -54,6 +54,14 @@ app.include_router(requisitions.router)
 app.include_router(compliance_docs.router)
 
 
+def render_template(request: Request, name: str, context: dict | None = None):
+    """Starlette 1.x expects request first; older releases accepted name first."""
+    data = {"request": request}
+    if context:
+        data.update(context)
+    return templates.TemplateResponse(request, name, data)
+
+
 # ── Rolling session middleware ─────────────────────────────────────────────────
 
 @app.middleware("http")
@@ -186,7 +194,7 @@ def index(request: Request):
 def login_page(request: Request):
     if _is_authenticated(request):
         return RedirectResponse(url="/dashboard", status_code=302)
-    return templates.TemplateResponse("login.html", {"request": request})
+    return render_template(request, "login.html")
 
 
 @app.get("/dashboard", response_class=HTMLResponse)
@@ -194,7 +202,7 @@ def dashboard_page(request: Request):
     redir = _require_auth(request)
     if redir:
         return redir
-    return templates.TemplateResponse("dashboard.html", {"request": request})
+    return render_template(request, "dashboard.html")
 
 
 @app.get("/spaces", response_class=HTMLResponse)
@@ -202,7 +210,7 @@ def spaces_page(request: Request):
     redir = _require_auth(request)
     if redir:
         return redir
-    return templates.TemplateResponse("spaces.html", {"request": request})
+    return render_template(request, "spaces.html")
 
 
 @app.get("/spaces/new", response_class=HTMLResponse)
@@ -210,8 +218,8 @@ def spaces_new_page(request: Request):
     redir = _require_auth(request)
     if redir:
         return redir
-    return templates.TemplateResponse(
-        "space_edit.html", {"request": request, "mode": "create", "space": None}
+    return render_template(
+        request, "space_edit.html", {"mode": "create", "space": None}
     )
 
 
@@ -223,9 +231,8 @@ def spaces_edit_page(request: Request, space_id: int):
     space, rr = _fetch_space_or_redirect(space_id, redirect_url="/spaces")
     if rr:
         return rr
-    return templates.TemplateResponse(
-        "space_edit.html",
-        {"request": request, "mode": "edit", "space": space},
+    return render_template(
+        request, "space_edit.html", {"mode": "edit", "space": space}
     )
 
 
@@ -237,9 +244,7 @@ def logs_space_page(request: Request, space_id: int):
     space, rr = _fetch_space_or_redirect(space_id)
     if rr:
         return rr
-    return templates.TemplateResponse(
-        "logs_space.html", {"request": request, "space": space}
-    )
+    return render_template(request, "logs_space.html", {"space": space})
 
 
 @app.get("/logs/{space_id}/merged", response_class=HTMLResponse)
@@ -252,10 +257,9 @@ def logs_merged_page(request: Request, space_id: int):
         return rr
     if not getattr(space, "lan_mode", False):
         return RedirectResponse(url=f"/logs/{space_id}", status_code=302)
-    return templates.TemplateResponse(
-        "logs_viewer.html",
-        {"request": request, "space": space, "ip": "_all",
-         "filename": "_all.log", "merged": True},
+    return render_template(
+        request, "logs_viewer.html",
+        {"space": space, "ip": "_all", "filename": "_all.log", "merged": True},
     )
 
 
@@ -267,9 +271,7 @@ def logs_files_page(request: Request, space_id: int, ip: str):
     space, rr = _fetch_space_or_redirect(space_id)
     if rr:
         return rr
-    return templates.TemplateResponse(
-        "logs_files.html", {"request": request, "space": space, "ip": ip}
-    )
+    return render_template(request, "logs_files.html", {"space": space, "ip": ip})
 
 
 @app.get("/logs/{space_id}/{ip}/view", response_class=HTMLResponse)
@@ -281,10 +283,9 @@ def logs_viewer_page(request: Request, space_id: int, ip: str):
     if rr:
         return rr
     filename = request.query_params.get("filename", f"{ip}.log")
-    return templates.TemplateResponse(
-        "logs_viewer.html",
-        {"request": request, "space": space, "ip": ip,
-         "filename": filename, "merged": False},
+    return render_template(
+        request, "logs_viewer.html",
+        {"space": space, "ip": ip, "filename": filename, "merged": False},
     )
 
 
@@ -293,7 +294,7 @@ def settings_page(request: Request):
     redir = _require_auth(request)
     if redir:
         return redir
-    return templates.TemplateResponse("settings.html", {"request": request})
+    return render_template(request, "settings.html")
 
 
 @app.get("/users", response_class=HTMLResponse)
@@ -301,7 +302,7 @@ def users_page(request: Request):
     redir = _require_auth(request)
     if redir:
         return redir
-    return templates.TemplateResponse("users.html", {"request": request})
+    return render_template(request, "users.html")
 
 
 # ── v2.0.0 — pages conformité ────────────────────────────────────────────────
@@ -311,7 +312,7 @@ def compliance_page(request: Request):
     redir = _require_auth(request)
     if redir:
         return redir
-    return templates.TemplateResponse("compliance.html", {"request": request})
+    return render_template(request, "compliance.html")
 
 
 @app.get("/compliance/chain", response_class=HTMLResponse)
@@ -319,7 +320,7 @@ def compliance_chain_page(request: Request):
     redir = _require_auth(request)
     if redir:
         return redir
-    return templates.TemplateResponse("compliance_chain.html", {"request": request})
+    return render_template(request, "compliance_chain.html")
 
 
 @app.get("/compliance/correlation", response_class=HTMLResponse)
@@ -327,7 +328,7 @@ def compliance_correlation_page(request: Request):
     redir = _require_auth(request)
     if redir:
         return redir
-    return templates.TemplateResponse("compliance_correlation.html", {"request": request})
+    return render_template(request, "compliance_correlation.html")
 
 
 @app.get("/compliance/requisitions", response_class=HTMLResponse)
@@ -335,7 +336,7 @@ def compliance_requisitions_page(request: Request):
     redir = _require_auth(request)
     if redir:
         return redir
-    return templates.TemplateResponse("compliance_requisitions.html", {"request": request})
+    return render_template(request, "compliance_requisitions.html")
 
 
 @app.get("/compliance/documents", response_class=HTMLResponse)
@@ -343,7 +344,7 @@ def compliance_documents_page(request: Request):
     redir = _require_auth(request)
     if redir:
         return redir
-    return templates.TemplateResponse("compliance_documents.html", {"request": request})
+    return render_template(request, "compliance_documents.html")
 
 
 # ── Startup ───────────────────────────────────────────────────────────────────
