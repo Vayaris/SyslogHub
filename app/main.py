@@ -145,7 +145,7 @@ async def force_password_change(request: Request, call_next):
 def health():
     return JSONResponse({
         "status": "ok",
-        "version": "2.0.0",
+        "version": "3.0.1",
         "services": {
             "rsyslog": service_active("rsyslog"),
             "nginx": service_active("nginx"),

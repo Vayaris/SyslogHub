@@ -19,6 +19,12 @@ Serveur SYSLOG centralisé avec interface web HTTPS — simple à déployer, fac
 - **Bouton "Envoyer un log test"** : sur la page des sources d'un espace, envoie un syslog UDP depuis `127.0.0.1` avec un message personnalisable, pour vérifier que la réception est active et que la chaîne rsyslog → fichier fonctionne. Refuse l'envoi avec un message clair si l'espace a une allowlist incompatible.
 - **Alertes "no-logs"** : notification email (SMTP Gmail / App Password) + webhook si un espace ne reçoit plus de logs depuis *X* heures (défaut 24h). Une alerte au passage DOWN, une alerte de retour (RECOVERY). Seuil, destinataire et webhook configurables par espace.
 
+## Nouveautés v3.0.1 — Correctif installateur
+
+- Installation complète des dépendances depuis `requirements.txt` pendant l'installation initiale, pour éviter les dépendances manquantes après déploiement.
+
+---
+
 ## Nouveautés v3.0.0 — Modernisation UI + compatibilité dépendances
 
 Mise à jour majeure des dépendances et refonte de l'interface utilisateur.

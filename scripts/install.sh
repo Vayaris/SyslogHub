@@ -73,6 +73,7 @@ fi
   "qrcode==8.0" \
   "authlib==1.5.2" \
   "httpx==0.28.1"
+"$VENV/bin/pip" install -q -r "$APP_DIR/requirements.txt"
 success "Virtualenv prêt"
 
 # ── GeoIP DB (db-ip.com Country Lite, CC-BY 4.0) ──────────────────────────────
